@@ -100,6 +100,80 @@ body {
   font-variant-numeric: tabular-nums;
 }
 
+/* Range inputs sized for grabbing with a mouse rather than nudging with a
+   keyboard: a tall invisible hit area and a large, obvious thumb. */
+input[type="range"].pf-slider {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 100%;
+  height: 28px;
+  background: transparent;
+  cursor: grab;
+  touch-action: none;
+}
+
+input[type="range"].pf-slider:active {
+  cursor: grabbing;
+}
+
+input[type="range"].pf-slider::-webkit-slider-runnable-track {
+  height: 8px;
+  border-radius: 999px;
+  background: color-mix(in oklab, var(--color-slate-bark-700) 90%, transparent);
+  border: 1px solid color-mix(in oklab, var(--color-slate-bark-600) 70%, transparent);
+}
+
+input[type="range"].pf-slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 22px;
+  height: 22px;
+  margin-top: -8px;
+  border-radius: 999px;
+  background: var(--color-canopy-400);
+  border: 2px solid var(--color-slate-bark-950);
+  box-shadow:
+    0 0 0 1px color-mix(in oklab, var(--color-canopy-300) 60%, transparent),
+    0 2px 8px rgb(0 0 0 / 0.55);
+  transition: transform 120ms ease, background-color 120ms ease;
+}
+
+input[type="range"].pf-slider:hover::-webkit-slider-thumb {
+  background: var(--color-canopy-300);
+  transform: scale(1.12);
+}
+
+input[type="range"].pf-slider:active::-webkit-slider-thumb {
+  background: var(--color-canopy-200);
+  transform: scale(1.2);
+}
+
+input[type="range"].pf-slider::-moz-range-track {
+  height: 8px;
+  border-radius: 999px;
+  background: color-mix(in oklab, var(--color-slate-bark-700) 90%, transparent);
+  border: 1px solid color-mix(in oklab, var(--color-slate-bark-600) 70%, transparent);
+}
+
+input[type="range"].pf-slider::-moz-range-thumb {
+  width: 20px;
+  height: 20px;
+  border-radius: 999px;
+  background: var(--color-canopy-400);
+  border: 2px solid var(--color-slate-bark-950);
+  box-shadow: 0 2px 8px rgb(0 0 0 / 0.55);
+}
+
+/* Number field that scrubs left/right when dragged horizontally. */
+.pf-scrub {
+  cursor: ew-resize;
+  user-select: none;
+}
+
+.pf-scrub:active {
+  cursor: ew-resize;
+}
+
 /* Thin scrollbars inside the control panel */
 @utility panel-scroll {
   scrollbar-width: thin;

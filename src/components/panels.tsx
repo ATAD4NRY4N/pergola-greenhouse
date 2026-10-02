@@ -152,7 +152,7 @@ export function ChecksPanel({ model }: { model: Model }) {
     {
       label: "Door track",
       value: `${s.trackLength.toFixed(2)} m`,
-      sub: `${model.design.frontDoors + model.design.leftDoors} leaves × 2 wheels`,
+      sub: `${model.design.frontDoors + model.design.rightDoors} leaves × 2 wheels`,
     },
   ];
 

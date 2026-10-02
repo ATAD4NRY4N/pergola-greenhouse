@@ -77,6 +77,19 @@ export function centroid3(poly: Vec3[]): Vec3 {
   );
 }
 
+/** Interpolate between two same-length vertex lists, e.g. a door on its track. */
+export function lerpPoly(a: Vec3[], b: Vec3[], t: number): Vec3[] {
+  const k = Math.min(1, Math.max(0, t));
+  return a.map((p, i) => {
+    const q = b[i] ?? p;
+    return {
+      x: p.x + (q.x - p.x) * k,
+      y: p.y + (q.y - p.y) * k,
+      z: p.z + (q.z - p.z) * k,
+    };
+  });
+}
+
 /* ------------------------------------------------------------------ */
 /* Dimension line component                                            */
 /* ------------------------------------------------------------------ */

@@ -24,12 +24,12 @@ const variants: [string, Partial<Design>][] = [
       eaveRight: 4.2,
       girderCount: 4,
       frontDoors: 4,
-      leftDoors: 3,
+      rightDoors: 3,
       baySpacing: 3.4,
     },
   ],
-  ["no doors", { frontDoors: 0, leftDoors: 0 }],
-  ["two sheet leaves", { doorLeafWidth: 2.438, doorLeafHeight: 2.438 }],
+  ["no doors", { frontDoors: 0, rightDoors: 0 }],
+  ["low eaves", { eaveLeft: 2.4, eaveRight: 2.7 }],
   [
     "flat roof, low bays",
     { eaveLeft: 2.5, eaveRight: 2.5, baySpacing: 3.5, roofPurlinSpacing: 1.4 },
@@ -74,7 +74,7 @@ describe("views render without throwing", () => {
       const left = renderToStaticMarkup(
         <ElevationView
           model={model}
-          side="left"
+          side="right"
           width={640}
           height={360}
           showSteel

@@ -211,12 +211,12 @@ export function Landing() {
               {
                 icon: <DoorOpen className="size-5" />,
                 title: "Sliding polycarb doors",
-                body: "Front and left. Each leaf is a trimmed sheet in a metal casing, hung on track wheels off the C purlin above.",
+                body: "Front and right. Each leaf is a whole 8 × 4 ft sheet in a metal casing, hung on track wheels off the C purlin above.",
               },
               {
                 icon: <Triangle className="size-5" />,
                 title: "Two open sides",
-                body: "The back leans on the log cabin and the right on the brick wall and timber fence. Structure only, no cladding.",
+                body: "The left leans on the log cabin and the back on the wall or timber fence. Structure only, no cladding.",
               },
               {
                 icon: <MapPin className="size-5" />,
@@ -261,12 +261,12 @@ export function Landing() {
               />
               <div className="mt-8 space-y-2">
                 {[
-                  ["Overall width and both depths", "Left side stays the deep one"],
+                  ["Overall width and both depths", "The front run stays straight"],
                   ["Eave heights at each end", "Sets the mono-pitch fall"],
                   ["Post spacing and SHS size", "On the perimeter and corners only"],
                   ["C purlin ring size and build", "Single, or doubled front and back"],
                   ["Z purlin section and centres", "Plus how many primary girders"],
-                  ["Door leaves, size and position", "Front and left, one sheet or two"],
+                  ["Door leaves, count and position", "Front and right, one whole 8 × 4 sheet"],
                   ["Rigid or adjustable per corner", "Lock 90° where you can"],
                 ].map(([a, b]) => (
                   <div
@@ -291,11 +291,11 @@ export function Landing() {
               className="space-y-3"
             >
               <Check title="Corner fixing per corner">
-                Back corners sit against your log cabin and the brick wall, so
-                they&apos;re genuinely 90° and take a rigid plate. Make the two
-                depths equal and the front squares up too. Leave them different
-                and the front corners skew — the model tells you the exact angle
-                and insists on an adjustable gusset there.
+                The front run is dead straight, so both front corners are a true 90°
+                and take a rigid plate. The offset lives on the back: with the two
+                depths different the back corners skew, the model tells you the
+                exact angle, and it insists on an adjustable gusset there. Make the
+                depths equal and the whole plan squares up.
               </Check>
               <Check title="Sheet layout, honestly">
                 Roof sheets are laid 2438 mm across the width and counted down
@@ -326,8 +326,8 @@ export function Landing() {
               {
                 n: "01",
                 icon: <Move3d className="size-5" />,
-                title: "Set the space",
-                body: "Walk the garden, get the width and both depths, and the height you can work at off the existing walls.",
+                title: "Set the space",body:
+                "Walk the garden, get the width and both depths, and the height you can work at off the existing walls.",
               },
               {
                 n: "02",
