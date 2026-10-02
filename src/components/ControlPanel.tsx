@@ -1,0 +1,639 @@
+import type { CornerFix, CornerId, Design, PolyWall, RingBuild } from "../lib/model";
+import { Badge, Button, Input, Label } from "./ui";
+import { cn, mmNum } from "../lib/utils";
+import {
+  ChevronDown,
+  Ruler,
+  Layers,
+  DoorOpen,
+  Boxes,
+  RotateCcw,
+  Factory,
+  TriangleAlert,
+} from "lucide-react";
+import { useState, type ReactNode } from "react";
+
+/* ------------------------------------------------------------------ */
+/* Primitives                                                          */
+/* ------------------------------------------------------------------ */
+
+function Section({
+  title,
+  icon,
+  children,
+  defaultOpen = true,
+  badge,
+}: {
+  title: string;
+  icon: ReactNode;
+  children: ReactNode;
+  defaultOpen?: boolean;
+  badge?: ReactNode;
+}) {
+  const [open, setOpen] = useState(defaultOpen);
+  return (
+    <div className="border-b border-slate-bark-800/80">
+      <button
+        type="button"
+        onClick={() => setOpen((o) => !o)}
+        className="flex w-full items-center gap-2 px-4 py-3 text-left transition-colors hover:bg-slate-bark-800/40"
+      >
+        <span className="text-canopy-400">{icon}</span>
+        <span className="flex-1 text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-bark-200">
+          {title}
+        </span>
+        {badge}
+        <ChevronDown
+          className={cn(
+            "size-3.5 text-slate-bark-500 transition-transform",
+            open && "rotate-180",
+          )}
+        />
+      </button>
+      {open && <div className="space-y-3 px-4 pb-4">{children}</div>}
+    </div>
+  );
+}
+
+function Dim({
+  label,
+  value,
+  min,
+  max,
+  step,
+  unit = "m",
+  hint,
+  onChange,
+}: {
+  label: string;
+  value: number;
+  min: number;
+  max: number;
+  step: number;
+  unit?: "m" | "mm";
+  hint?: string;
+  onChange: (v: number) => void;
+}) {
+  return (
+    <div>
+      <div className="flex items-baseline justify-between gap-2">
+        <Label>{label}</Label>
+        <div className="flex items-center gap-1">
+          <Input
+            type="number"
+            value={unit === "m" ? value : Math.round(value)}
+            min={min}
+            max={max}
+            step={step}
+            onChange={(e) => {
+              const n = Number(e.target.value);
+              if (!Number.isNaN(n)) onChange(Math.min(max, Math.max(min, n)));
+            }}
+            className="h-7 w-20 px-2 text-right font-mono text-xs tnum"
+          />
+          <span className="w-4 font-mono text-[10px] text-slate-bark-500">
+            {unit}
+          </span>
+        </div>
+      </div>
+      <input
+        type="range"
+        min={min}
+        max={max}
+        step={step}
+        value={value}
+        onChange={(e) => onChange(Number(e.target.value))}
+        className="mt-1.5 h-1.5 w-full cursor-pointer appearance-none rounded-full bg-slate-bark-800 accent-canopy-400"
+      />
+      {hint && (
+        <p className="mt-1 font-mono text-[10px] leading-tight text-slate-bark-500">
+          {hint}
+        </p>
+      )}
+    </div>
+  );
+}
+
+function Seg<T extends string | number>({
+  label,
+  value,
+  options,
+  onChange,
+}: {
+  label: string;
+  value: T;
+  options: { value: T; label: string }[];
+  onChange: (v: T) => void;
+}) {
+  return (
+    <div>
+      <Label>{label}</Label>
+      <div className="mt-1.5 grid grid-flow-col gap-1 rounded-md bg-slate-bark-950 p-1">
+        {options.map((o) => (
+          <button
+            key={String(o.value)}
+            type="button"
+            onClick={() => onChange(o.value)}
+            className={cn(
+              "rounded px-2 py-1.5 font-mono text-[11px] transition-colors",
+              value === o.value
+                ? "bg-canopy-500 text-slate-bark-950"
+                : "text-slate-bark-400 hover:bg-slate-bark-800 hover:text-slate-bark-200",
+            )}
+          >
+            {o.label}
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function Toggle({
+  label,
+  checked,
+  onChange,
+}: {
+  label: string;
+  checked: boolean;
+  onChange: (v: boolean) => void;
+}) {
+  return (
+    <button
+      type="button"
+      role="switch"
+      aria-checked={checked}
+      onClick={() => onChange(!checked)}
+      className="flex w-full items-center justify-between rounded-md border border-slate-bark-800 bg-slate-bark-950/60 px-3 py-2 text-left transition-colors hover:border-canopy-800"
+    >
+      <span className="text-xs text-slate-bark-300">{label}</span>
+      <span
+        className={cn(
+          "relative h-4 w-7 rounded-full transition-colors",
+          checked ? "bg-canopy-500" : "bg-slate-bark-700",
+        )}
+      >
+        <span
+          className={cn(
+            "absolute top-0.5 size-3 rounded-full bg-white transition-transform",
+            checked ? "translate-x-3.5" : "translate-x-0.5",
+          )}
+        />
+      </span>
+    </button>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/* Panel                                                               */
+/* ------------------------------------------------------------------ */
+
+export function ControlPanel({
+  design,
+  onChange,
+  onReset,
+}: {
+  design: Design;
+  onChange: (patch: Partial<Design>) => void;
+  onReset: () => void;
+}) {
+  const set = <K extends keyof Design>(k: K, v: Design[K]) =>
+    onChange({ [k]: v } as Partial<Design>);
+  const setCorner = (id: CornerId, fix: CornerFix) =>
+    onChange({ corners: { ...design.corners, [id]: fix } });
+
+  const frontRun = Math.hypot(design.width, design.depthRight - design.depthLeft);
+  const delta = design.depthLeft - design.depthRight;
+  const frontLeftAngle =
+    (Math.atan2(delta, design.width) * 180) / Math.PI + 90;
+  const frontRightAngle = 180 - frontLeftAngle;
+
+  return (
+    <div className="panel-scroll h-full overflow-y-auto">
+      {/* header */}
+      <div className="sticky top-0 z-10 flex items-center gap-2 border-b border-slate-bark-800 bg-slate-bark-900/95 px-4 py-3 backdrop-blur">
+        <Ruler className="size-4 text-canopy-400" />
+        <span className="flex-1 text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-bark-200">
+          Dimensions
+        </span>
+        <Button variant="ghost" size="sm" onClick={onReset} title="Reset to the briefed size">
+          <RotateCcw className="size-3.5" />
+          Reset
+        </Button>
+      </div>
+
+      <Section title="Footprint" icon={<Layers className="size-3.5" />}>
+        <Dim
+          label="Overall width"
+          value={design.width}
+          min={3}
+          max={14}
+          step={0.05}
+          onChange={(v) => set("width", v)}
+          hint={`${mmNum(design.width)} across, log cabin side to brick wall`}
+        />
+        <Dim
+          label="Depth — left side"
+          value={design.depthLeft}
+          min={2}
+          max={14}
+          step={0.05}
+          onChange={(v) => set("depthLeft", v)}
+          hint={`${mmNum(design.depthLeft)} — this is your deep side`}
+        />
+        <Dim
+          label="Depth — right side"
+          value={design.depthRight}
+          min={2}
+          max={14}
+          step={0.05}
+          onChange={(v) => set("depthRight", v)}
+          hint={`${mmNum(design.depthRight)} — match the left to square the front corners`}
+        />
+        <div className="rounded-md border border-slate-bark-800 bg-slate-bark-950/60 p-2.5">
+          <p className="font-mono text-[10px] leading-relaxed text-slate-bark-400">
+            Front run{" "}
+            <span className="text-canopy-300 tnum">{mmNum(frontRun)}</span> ·
+            front-left{" "}
+            <span
+              className={cn(
+                "tnum",
+                Math.abs(frontLeftAngle - 90) > 0.25 ? "text-brass-400" : "text-canopy-300",
+              )}
+            >
+              {frontLeftAngle.toFixed(1)}°
+            </span>{" "}
+            · front-right{" "}
+            <span
+              className={cn(
+                "tnum",
+                Math.abs(frontRightAngle - 90) > 0.25 ? "text-brass-400" : "text-canopy-300",
+              )}
+            >
+              {frontRightAngle.toFixed(1)}°
+            </span>
+          </p>
+        </div>
+      </Section>
+
+      <Section title="Height & fall" icon={<Layers className="size-3.5" />}>
+        <Dim
+          label="Eave — left (low)"
+          value={design.eaveLeft}
+          min={1.9}
+          max={4}
+          step={0.05}
+          onChange={(v) => set("eaveLeft", v)}
+          hint="Top of ring rail, door side"
+        />
+        <Dim
+          label="Eave — right (high)"
+          value={design.eaveRight}
+          min={1.9}
+          max={4.5}
+          step={0.05}
+          onChange={(v) => set("eaveRight", v)}
+          hint="Top of ring rail, brick wall side"
+        />
+        <Dim
+          label="Roof overhang"
+          value={design.roofOverhang}
+          min={0}
+          max={1.2}
+          step={0.05}
+          onChange={(v) => set("roofOverhang", v)}
+        />
+        <Dim
+          label="Sill height"
+          value={design.sillHeight}
+          min={0}
+          max={1.2}
+          step={0.05}
+          onChange={(v) => set("sillHeight", v)}
+        />
+      </Section>
+
+      <Section title="Posts & perimeter ring" icon={<Boxes className="size-3.5" />}>
+        <Seg
+          label="SHS post size"
+          value={design.postSize}
+          options={[
+            { value: 40, label: "40×40" },
+            { value: 50, label: "50×50" },
+            { value: 60, label: "60×60" },
+            { value: 80, label: "80×80" },
+          ]}
+          onChange={(v) => set("postSize", v)}
+        />
+        <Dim
+          label="Max post centres"
+          value={design.baySpacing}
+          min={1.2}
+          max={3.5}
+          step={0.05}
+          onChange={(v) => set("baySpacing", v)}
+          hint="Posts stay on the perimeter and corners only — never inside."
+        />
+        <Seg
+          label="C purlin ring"
+          value={design.ringDepth}
+          options={[
+            { value: 75, label: "C75" },
+            { value: 100, label: "C100" },
+            { value: 125, label: "C125" },
+            { value: 150, label: "C150" },
+          ]}
+          onChange={(v) => set("ringDepth", v)}
+        />
+        <Seg
+          label="Front & back ring build"
+          value={design.ringBuildFrontBack}
+          options={[
+            { value: "single" as RingBuild, label: "Single" },
+            { value: "double" as RingBuild, label: "Doubled" },
+          ]}
+          onChange={(v) => set("ringBuildFrontBack", v)}
+        />
+      </Section>
+
+      <Section
+        title="Roof Z frame"
+        icon={<Boxes className="size-3.5" />}
+        defaultOpen={false}
+      >
+        <Seg
+          label="Z purlin section"
+          value={design.roofPurlinDepth}
+          options={[
+            { value: 100, label: "Z100" },
+            { value: 150, label: "Z150" },
+            { value: 175, label: "Z175" },
+            { value: 200, label: "Z200" },
+            { value: 250, label: "Z250" },
+          ]}
+          onChange={(v) => set("roofPurlinDepth", v)}
+        />
+        <Dim
+          label="Purlin centres"
+          value={design.roofPurlinSpacing}
+          min={0.3}
+          max={1.5}
+          step={0.05}
+          onChange={(v) => set("roofPurlinSpacing", v)}
+          hint="600 mm is the usual maximum for twinwall on a purlin."
+        />
+        <Seg
+          label="Primary Z girders (front↔back)"
+          value={design.girderCount}
+          options={[
+            { value: 0, label: "None" },
+            { value: 1, label: "1" },
+            { value: 2, label: "2" },
+            { value: 3, label: "3" },
+            { value: 4, label: "4" },
+          ]}
+          onChange={(v) => set("girderCount", v)}
+        />
+        <p className="font-mono text-[10px] leading-relaxed text-slate-bark-500">
+          Girders land on the front and back ring rails, so the roof purlins only
+          span between them. Add more girders to shorten the purlin span without
+          putting a post inside the structure.
+        </p>
+      </Section>
+
+      <Section
+        title="Polycarbonate"
+        icon={<Layers className="size-3.5" />}
+      >
+        <Seg
+          label="Sheet type"
+          value={design.polyWall}
+          options={[
+            { value: "twin" as PolyWall, label: "Twinwall" },
+            { value: "triple" as PolyWall, label: "Triplewall" },
+          ]}
+          onChange={(v) => set("polyWall", v)}
+        />
+        <Seg
+          label="Thickness"
+          value={design.polyThickness}
+          options={[
+            { value: 4, label: "4mm" },
+            { value: 6, label: "6mm" },
+            { value: 10, label: "10mm" },
+            { value: 16, label: "16mm" },
+          ]}
+          onChange={(v) => set("polyThickness", v)}
+        />
+        <p className="font-mono text-[10px] leading-relaxed text-slate-bark-500">
+          All sheets are 2438 × 1219 mm (8 × 4 ft). Roof, walls and doors all come
+          off the same sheet size, so offcuts can be shared.
+        </p>
+        <Toggle
+          label="Knee braces at every post"
+          checked={design.kneeBraces}
+          onChange={(v) => set("kneeBraces", v)}
+        />
+        {design.kneeBraces && (
+          <Dim
+            label="Brace projection"
+            value={design.kneeBraceLength}
+            min={0.3}
+            max={1.6}
+            step={0.05}
+            onChange={(v) => set("kneeBraceLength", v)}
+            hint="Halves the front and back ring span without an internal post."
+          />
+        )}
+        <Toggle
+          label="Glaze the front run"
+          checked={design.glazeFront}
+          onChange={(v) => set("glazeFront", v)}
+        />
+        <Toggle
+          label="Glaze the left run"
+          checked={design.glazeLeft}
+          onChange={(v) => set("glazeLeft", v)}
+        />
+      </Section>
+
+      <Section title="Sliding doors" icon={<DoorOpen className="size-3.5" />}>
+        <Seg
+          label="Leaf width"
+          value={design.doorLeafWidth}
+          options={[
+            { value: 1.219, label: "1 sheet" },
+            { value: 2.438, label: "2 sheets" },
+          ]}
+          onChange={(v) => set("doorLeafWidth", v)}
+        />
+        <Seg
+          label="Leaf height"
+          value={design.doorLeafHeight}
+          options={[
+            { value: 1.219, label: "1 sheet" },
+            { value: 2.438, label: "2 sheets" },
+          ]}
+          onChange={(v) => set("doorLeafHeight", v)}
+        />
+        <Dim
+          label="Front — leaves"
+          value={design.frontDoors}
+          min={0}
+          max={5}
+          step={1}
+          unit="mm"
+          onChange={(v) => set("frontDoors", Math.round(v))}
+        />
+        <Dim
+          label="Front — offset from left corner"
+          value={design.frontDoorOffset}
+          min={0}
+          max={10}
+          step={0.05}
+          onChange={(v) => set("frontDoorOffset", v)}
+        />
+        <Dim
+          label="Left — leaves"
+          value={design.leftDoors}
+          min={0}
+          max={5}
+          step={1}
+          unit="mm"
+          onChange={(v) => set("leftDoors", Math.round(v))}
+        />
+        <Dim
+          label="Left — offset from front corner"
+          value={design.leftDoorOffset}
+          min={0}
+          max={10}
+          step={0.05}
+          onChange={(v) => set("leftDoorOffset", v)}
+        />
+        <div>
+          <Label>Door position</Label>
+          <input
+            type="range"
+            min={0}
+            max={1}
+            step={0.01}
+            value={design.doorOpen}
+            onChange={(e) => set("doorOpen", Number(e.target.value))}
+            className="mt-1.5 h-1.5 w-full cursor-pointer appearance-none rounded-full bg-slate-bark-800 accent-brass-400"
+          />
+          <p className="mt-1 font-mono text-[10px] text-slate-bark-500">
+            {design.doorOpen > 0.5 ? "Parked open" : "Closed"} — preview only
+          </p>
+        </div>
+      </Section>
+
+      <Section
+        title="Corner fixings"
+        icon={<TriangleAlert className="size-3.5" />}
+        badge={
+          design.depthLeft === design.depthRight ? (
+            <Badge tone="green">all square</Badge>
+          ) : (
+            <Badge tone="brass">front skewed</Badge>
+          )
+        }
+      >
+        {(
+          [
+            ["bl", "Back-left", "against log cabin", 90],
+            ["br", "Back-right", "against brick wall", 90],
+            ["fr", "Front-right", "doors side", frontRightAngle],
+            ["fl", "Front-left", "doors side", frontLeftAngle],
+          ] as [CornerId, string, string, number][]
+        ).map(([id, label, sub, angle]) => {
+          const fix = design.corners[id];
+          const square = Math.abs(angle - 90) < 0.25;
+          const ok = fix === "adjustable" || square;
+          return (
+            <div
+              key={id}
+              className={cn(
+                "rounded-md border p-2.5 transition-colors",
+                ok
+                  ? "border-slate-bark-800 bg-slate-bark-950/60"
+                  : "border-red-500/40 bg-red-500/5",
+              )}
+            >
+              <div className="flex items-center justify-between gap-2">
+                <div className="min-w-0">
+                  <p className="truncate text-xs font-medium text-slate-bark-200">
+                    {label}
+                  </p>
+                  <p className="font-mono text-[10px] text-slate-bark-500">
+                    {sub} · {angle.toFixed(1)}°
+                  </p>
+                </div>
+                <div className="grid shrink-0 grid-cols-2 gap-1 rounded-md bg-slate-bark-900 p-0.5">
+                  <button
+                    type="button"
+                    onClick={() => setCorner(id, "rigid90")}
+                    className={cn(
+                      "rounded px-2 py-1 font-mono text-[10px] transition-colors",
+                      fix === "rigid90"
+                        ? "bg-canopy-500 text-slate-bark-950"
+                        : "text-slate-bark-400 hover:text-slate-bark-200",
+                    )}
+                  >
+                    90°
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setCorner(id, "adjustable")}
+                    className={cn(
+                      "rounded px-2 py-1 font-mono text-[10px] transition-colors",
+                      fix === "adjustable"
+                        ? "bg-brass-400 text-slate-bark-950"
+                        : "text-slate-bark-400 hover:text-slate-bark-200",
+                    )}
+                  >
+                    adj
+                  </button>
+                </div>
+              </div>
+              {!ok && (
+                <p className="mt-1.5 font-mono text-[10px] leading-tight text-red-300">
+                  Rigid 90° cannot close a {angle.toFixed(1)}° corner — switch to
+                  adjustable, or make both depths equal.
+                </p>
+              )}
+            </div>
+          );
+        })}
+      </Section>
+
+      <Section
+        title="Provenance"
+        icon={<Factory className="size-3.5" />}
+        defaultOpen={false}
+      >
+        <p className="font-mono text-[10px] leading-relaxed text-slate-bark-500">
+          Sections, sheet sizes and fixings follow the brief: SHS posts on the
+          perimeter and corners only, C purlin ring, Z purlins to the roof,
+          8 × 4 ft twinwall polycarbonate for roof, walls and doors, sliding
+          leaves on track wheels hung from the C purlin.
+        </p>
+        <Button
+          variant="outline"
+          size="sm"
+          className="w-full"
+          onClick={onReset}
+        >
+          Restore the briefed 8.5 × 8.0 / 7.0 m layout
+        </Button>
+      </Section>
+
+      <div className="px-4 py-3">
+        <p className="font-mono text-[10px] leading-relaxed text-slate-bark-600">
+          Indicative span checks only. Confirm every section against the
+          manufacturer&apos;s load tables and get a structural sign-off before
+          you build.
+        </p>
+      </div>
+    </div>
+  );
+}
