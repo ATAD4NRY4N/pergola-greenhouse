@@ -6,6 +6,7 @@ import { Axonometric } from "./views/Axonometric";
 import { PlanView } from "./views/PlanView";
 import { ElevationView, SectionView } from "./views/ElevationView";
 import { ControlPanel } from "./ControlPanel";
+import { OrbitControls, XyzPad } from "./ViewControls";
 import { ChecksPanel, CutListPanel, SourcingPanel } from "./panels";
 import { Badge, Button, Card } from "./ui";
 import { cn, mmNum } from "../lib/utils";
@@ -27,7 +28,6 @@ import {
   Grid3x3,
   CircleDot,
   Leaf,
-  RotateCw,
   X,
   CloudOff,
 } from "lucide-react";
@@ -68,7 +68,8 @@ export function DesignerApp({
   const [showSteel, setShowSteel] = useState(true);
   const [showFrame, setShowFrame] = useState(true);
   const [yaw, setYaw] = useState(-38);
-  const [tilt] = useState(58);
+  const [tilt, setTilt] = useState(58);
+  const [pan, setPan] = useState({ x: 0, y: 0, z: 0 });
   const [savedId, setSavedId] = useState<string | null>(null);
   const [status, setStatus] = useState<string | null>(null);
   const [showSaved, setShowSaved] = useState(false);
@@ -282,27 +283,23 @@ export function DesignerApp({
             )}
 
             {view === "axon" && (
-              <div className="ml-auto flex items-center gap-2">
-                <button
-                  onClick={() => setYaw((y) => y + 45)}
-                  aria-label="Rotate 45 degrees"
-                  className="rounded-md p-1.5 text-slate-bark-400 transition-colors hover:bg-slate-bark-800 hover:text-canopy-300"
-                >
-                  <RotateCw className="size-3.5" />
-                </button>
-                <input
-                  type="range"
-                  min={-180}
-                  max={180}
-                  step={1}
-                  value={yaw}
-                  onChange={(e) => setYaw(Number(e.target.value))}
-                  aria-label="Rotation"
-                  className="h-1 w-24 cursor-pointer appearance-none rounded-full bg-slate-bark-800 accent-canopy-400"
+              <div className="ml-auto flex flex-wrap items-center gap-2">
+                <XyzPad
+                  pan={pan}
+                  onChange={setPan}
+                  onReset={() => setPan({ x: 0, y: 0, z: 0 })}
                 />
-                <span className="w-9 font-mono text-[10px] text-slate-bark-500 tnum">
-                  {Math.round(yaw)}°
-                </span>
+                <OrbitControls
+                  yaw={yaw}
+                  tilt={tilt}
+                  onYaw={setYaw}
+                  onTilt={setTilt}
+                  onReset={() => {
+                    setYaw(-38);
+                    setTilt(58);
+                    setPan({ x: 0, y: 0, z: 0 });
+                  }}
+                />
               </div>
             )}
           </div>
@@ -318,6 +315,9 @@ export function DesignerApp({
                 yaw={yaw}
                 tilt={tilt}
                 onYaw={setYaw}
+                onTilt={setTilt}
+                pan={pan}
+                onPan={setPan}
               />
             )}
             {view === "plan" && (
@@ -348,6 +348,16 @@ export function DesignerApp({
               />
             )}
             {view === "section" && <SectionView model={model} width={w} height={h} />}
+
+            {view === "axon" && (
+              <p className="pointer-events-none absolute right-3 top-3 rounded-md border border-slate-bark-800 bg-slate-bark-950/80 px-2.5 py-1.5 text-right font-mono text-[10px] leading-relaxed text-slate-bark-500 backdrop-blur">
+                drag = orbit
+                <br />
+                right / shift-drag = move X, Y, Z
+                <br />
+                double-click = recentre
+              </p>
+            )}
 
             <div className="pointer-events-none absolute bottom-3 left-3 flex flex-wrap gap-x-4 gap-y-1 rounded-md border border-slate-bark-800 bg-slate-bark-950/80 px-3 py-2 backdrop-blur">
               {[
