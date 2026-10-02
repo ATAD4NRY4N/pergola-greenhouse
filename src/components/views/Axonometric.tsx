@@ -27,6 +27,9 @@ export function Axonometric({
   yaw,
   tilt,
   onYaw,
+  onTilt,
+  pan,
+  onPan,
 }: {
   model: Model;
   showSheets: boolean;
@@ -36,14 +39,35 @@ export function Axonometric({
   yaw: number;
   tilt: number;
   onYaw?: (y: number) => void;
+  onTilt?: (t: number) => void;
+  /** World-space offset in metres, so the model can be moved in X, Y and Z. */
+  pan?: Vec3;
+  onPan?: (p: Vec3) => void;
 }) {
-  const drag = useRef<{ x: number; yaw: number } | null>(null);
+  type Drag =
+    | { mode: "orbit"; x: number; y: number; yaw: number; tilt: number }
+    | { mode: "pan"; x: number; y: number; pan: Vec3 }
+    | null;
+  const drag = useRef<Drag>(null);
   const [localYaw, setLocalYaw] = useState(yaw);
+  const [localTilt, setLocalTilt] = useState(tilt);
+  const [localPan, setLocalPan] = useState<Vec3>({ x: 0, y: 0, z: 0 });
 
   const yawValue = onYaw ? yaw : localYaw;
+  const tiltValue = onTilt ? tilt : localTilt;
+  const panValue = pan ?? localPan;
+
   const setYawValue = (v: number) => {
     if (onYaw) onYaw(v);
     else setLocalYaw(v);
+  };
+  const setTiltValue = (v: number) => {
+    if (onTilt) onTilt(v);
+    else setLocalTilt(v);
+  };
+  const setPanValue = (v: Vec3) => {
+    if (onPan) onPan(v);
+    else setLocalPan(v);
   };
 
   const fit = useMemo(() => {
@@ -56,10 +80,17 @@ export function Axonometric({
     }
     for (const c of model.corners) pts.push({ x: c.at.x, y: c.at.y, z: 0 });
     if (pts.length === 0) pts.push({ x: 0, y: 0, z: 0 }, { x: 1, y: 1, z: 1 });
-    return fitPoints(pts, yawValue, tilt, width, height, 64);
-  }, [model, yawValue, tilt, width, height]);
+    return fitPoints(pts, yawValue, tiltValue, width, height, 64);
+  }, [model, yawValue, tiltValue, width, height]);
 
-  const project = fit.project;
+  /* Pan is applied after the fit, so moving the model never rescales it. */
+  const baseProject = fit.project;
+  const project = useMemo(() => {
+    const { x: dx, y: dy, z: dz } = panValue;
+    if (dx === 0 && dy === 0 && dz === 0) return baseProject;
+    return (p: Vec3) => baseProject({ x: p.x + dx, y: p.y + dy, z: p.z + dz });
+  }, [baseProject, panValue]);
+
   const P = (p: Vec3) => project(p);
 
   const sortedPanels = useMemo(() => {
@@ -83,30 +114,61 @@ export function Axonometric({
     (c) => P({ x: model.plan[c].x, y: model.plan[c].y, z: 0 }),
   );
 
+  /* How many metres of world travel one pixel of drag is worth. */
+  const panScale = 0.012;
+
   return (
     <svg
       width={width}
       height={height}
       viewBox={`0 0 ${width} ${height}`}
       className="block select-none"
-      style={{ touchAction: "none", cursor: drag.current ? "grabbing" : "grab" }}
+      style={{
+        touchAction: "none",
+        cursor: drag.current
+          ? "grabbing"
+          : panValue.x || panValue.y || panValue.z
+            ? "move"
+            : "grab",
+      }}
+      onContextMenu={(e) => e.preventDefault()}
       onPointerDown={(e) => {
-        (e.target as Element).setPointerCapture?.(e.pointerId);
-        drag.current = { x: e.clientX, yaw: yawValue };
+        (e.currentTarget as SVGSVGElement).setPointerCapture(e.pointerId);
+        // Right button, middle button or Shift = pan in the view plane.
+        const panning = e.button === 2 || e.button === 1 || e.shiftKey;
+        drag.current = panning
+          ? { mode: "pan", x: e.clientX, y: e.clientY, pan: panValue }
+          : { mode: "orbit", x: e.clientX, y: e.clientY, yaw: yawValue, tilt: tiltValue };
       }}
       onPointerMove={(e) => {
-        if (!drag.current) return;
-        const dx = e.clientX - drag.current.x;
-        setYawValue((drag.current.yaw + dx * 0.45) % 360);
+        const g = drag.current;
+        if (!g) return;
+        const dx = e.clientX - g.x;
+        const dy = e.clientY - g.y;
+        if (g.mode === "orbit") {
+          setYawValue((g.yaw + dx * 0.45) % 360);
+          setTiltValue(Math.min(88, Math.max(18, g.tilt - dy * 0.35)));
+        } else {
+          // Horizontal drag slides along the model's X/Y, vertical along Z.
+          setPanValue({
+            x: g.pan.x + dx * panScale,
+            y: g.pan.y - dx * panScale * 0.5,
+            z: g.pan.z + dy * panScale,
+          });
+        }
       }}
       onPointerUp={() => {
+        drag.current = null;
+      }}
+      onPointerCancel={() => {
         drag.current = null;
       }}
       onPointerLeave={() => {
         drag.current = null;
       }}
+      onDoubleClick={() => setPanValue({ x: 0, y: 0, z: 0 })}
       role="img"
-      aria-label="Axonometric view of the pergola greenhouse structure"
+      aria-label="Axonometric view of the pergola greenhouse structure. Drag to orbit, shift-drag or right-drag to move in X, Y and Z."
     >
       <defs>
         <linearGradient id="roofSheen" x1="0" y1="0" x2="1" y2="1">

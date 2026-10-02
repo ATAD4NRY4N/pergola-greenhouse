@@ -8,6 +8,7 @@ import { ElevationView, SectionView } from "../components/views/ElevationView";
 import { ChecksPanel } from "../components/panels";
 import { Landing } from "../pages/Landing";
 import { Designer } from "../components/Designer";
+import { XyzPad, OrbitControls } from "../components/ViewControls";
 import { DEFAULT_DESIGN, buildModel, type Design } from "./model";
 
 const variants: [string, Partial<Design>][] = [
@@ -118,6 +119,99 @@ describe("full pages render without throwing", () => {
     expect(html).toContain("Sourcing");
     expect(html).toContain("Perimeter ring");
     expect(html).toContain("<svg");
+  });
+});
+
+describe("3D movement controls", () => {
+  test("axis pad renders each axis and its offset", () => {
+    const html = renderToStaticMarkup(
+      <XyzPad
+        pan={{ x: 1.25, y: -0.5, z: 0 }}
+        onChange={() => {}}
+        onReset={() => {}}
+      />,
+    );
+    expect(html).toContain("X");
+    expect(html).toContain("Y");
+    expect(html).toContain("Z");
+    expect(html).toContain("+1.25");
+    expect(html).toContain("-0.50");
+    expect(html).toContain('aria-label="Move along X"');
+    expect(html).toContain('aria-label="Move along Y"');
+    expect(html).toContain('aria-label="Move along Z"');
+  });
+
+  test("orbit controls expose spin and tilt", () => {
+    const html = renderToStaticMarkup(
+      <OrbitControls
+        yaw={-38}
+        tilt={58}
+        onYaw={() => {}}
+        onTilt={() => {}}
+        onReset={() => {}}
+      />,
+    );
+    expect(html).toContain('aria-label="Spin"');
+    expect(html).toContain('aria-label="Tilt"');
+  });
+
+  test("the axonometric pans without changing the model", () => {
+    const model = buildModel(DEFAULT_DESIGN);
+    const base = renderToStaticMarkup(
+      <Axonometric
+        model={model}
+        showSheets
+        showSteel
+        width={500}
+        height={320}
+        yaw={-38}
+        tilt={58}
+      />,
+    );
+    const panned = renderToStaticMarkup(
+      <Axonometric
+        model={model}
+        showSheets
+        showSteel
+        width={500}
+        height={320}
+        yaw={-38}
+        tilt={58}
+        pan={{ x: 2, y: -1, z: 3 }}
+      />,
+    );
+    // Same number of members, but drawn somewhere else.
+    expect(panned).not.toBe(base);
+    expect((panned.match(/<line/g) ?? []).length).toBe(
+      (base.match(/<line/g) ?? []).length,
+    );
+  });
+
+  test("the axonometric honours a tilt change", () => {
+    const model = buildModel(DEFAULT_DESIGN);
+    const flat = renderToStaticMarkup(
+      <Axonometric
+        model={model}
+        showSheets
+        showSteel
+        width={500}
+        height={320}
+        yaw={-38}
+        tilt={20}
+      />,
+    );
+    const steep = renderToStaticMarkup(
+      <Axonometric
+        model={model}
+        showSheets
+        showSteel
+        width={500}
+        height={320}
+        yaw={-38}
+        tilt={80}
+      />,
+    );
+    expect(flat).not.toBe(steep);
   });
 });
 
