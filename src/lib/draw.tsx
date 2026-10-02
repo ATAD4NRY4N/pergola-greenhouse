@@ -1,0 +1,271 @@
+import type { ReactNode } from "react";
+import type { Vec2, Vec3 } from "./model";
+
+/* ------------------------------------------------------------------ */
+/* Axonometric projection                                              */
+/* ------------------------------------------------------------------ */
+
+export interface Projector {
+  (p: Vec3): { u: number; v: number };
+}
+
+export function makeProjector(yawDeg: number, tiltDeg: number): Projector {
+  const yaw = (yawDeg * Math.PI) / 180;
+  const tilt = (tiltDeg * Math.PI) / 180;
+  const cy = Math.cos(yaw);
+  const sy = Math.sin(yaw);
+  const st = Math.sin(tilt);
+  const ct = Math.cos(tilt);
+  return (p: Vec3) => ({
+    u: p.x * cy - p.y * sy,
+    v: (p.x * sy + p.y * cy) * st - p.z * ct,
+  });
+}
+
+export interface Fit {
+  project: (p: Vec3) => { x: number; y: number };
+  scale: number;
+}
+
+export function fitPoints(
+  points: Vec3[],
+  yawDeg: number,
+  tiltDeg: number,
+  width: number,
+  height: number,
+  pad = 56,
+): Fit {
+  const raw = makeProjector(yawDeg, tiltDeg);
+  let minU = Infinity;
+  let maxU = -Infinity;
+  let minV = Infinity;
+  let maxV = -Infinity;
+  for (const p of points) {
+    const q = raw(p);
+    if (q.u < minU) minU = q.u;
+    if (q.u > maxU) maxU = q.u;
+    if (q.v < minV) minV = q.v;
+    if (q.v > maxV) maxV = q.v;
+  }
+  const spanU = Math.max(maxU - minU, 0.001);
+  const spanV = Math.max(maxV - minV, 0.001);
+  const scale = Math.min((width - pad * 2) / spanU, (height - pad * 2) / spanV);
+  const offU = (width - spanU * scale) / 2;
+  const offV = (height - spanV * scale) / 2;
+  return {
+    scale,
+    project: (p: Vec3) => {
+      const q = raw(p);
+      return { x: offU + (q.u - minU) * scale, y: offV + (q.v - minV) * scale };
+    },
+  };
+}
+
+/* ------------------------------------------------------------------ */
+/* SVG helpers                                                         */
+/* ------------------------------------------------------------------ */
+
+export function polyPoints(pts: { x: number; y: number }[]): string {
+  return pts.map((p) => `${p.x.toFixed(2)},${p.y.toFixed(2)}`).join(" ");
+}
+
+export function centroid3(poly: Vec3[]): Vec3 {
+  const n = poly.length || 1;
+  return poly.reduce<Vec3>(
+    (acc, p) => ({ x: acc.x + p.x / n, y: acc.y + p.y / n, z: acc.z + p.z / n }),
+    { x: 0, y: 0, z: 0 },
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/* Dimension line component                                            */
+/* ------------------------------------------------------------------ */
+
+export interface DimLineProps {
+  x1: number;
+  y1: number;
+  x2: number;
+  y2: number;
+  label: string;
+  /** Extra label shown under the main one. */
+  sub?: string;
+  color?: string;
+  flip?: boolean;
+  fontSize?: number;
+}
+
+/** Engineering-style dimension line with arrow ticks at both ends. */
+export function DimLine({
+  x1,
+  y1,
+  x2,
+  y2,
+  label,
+  sub,
+  color = "var(--color-canopy-300)",
+  flip = false,
+  fontSize = 12,
+}: DimLineProps) {
+  const midX = (x1 + x2) / 2;
+  const midY = (y1 + y2) / 2;
+  const tx = 4.5;
+  const dy = flip ? -1 : 1;
+  return (
+    <g pointerEvents="none">
+      <line
+        x1={x1}
+        y1={y1}
+        x2={x2}
+        y2={y2}
+        stroke={color}
+        strokeWidth={1}
+        strokeDasharray="6 3"
+        opacity={0.85}
+      />
+      {/* 45-degree tick marks, architectural convention */}
+      <line
+        x1={x1 - tx * dy}
+        y1={y1 - tx * dy}
+        x2={x1 + tx * dy}
+        y2={y1 + tx * dy}
+        stroke={color}
+        strokeWidth={1.4}
+        opacity={0.95}
+      />
+      <line
+        x1={x2 - tx * dy}
+        y1={y2 - tx * dy}
+        x2={x2 + tx * dy}
+        y2={y2 + tx * dy}
+        stroke={color}
+        strokeWidth={1.4}
+        opacity={0.95}
+      />
+      <text
+        x={midX}
+        y={midY + (flip ? -7 : 16)}
+        textAnchor="middle"
+        fill={color}
+        fontSize={fontSize}
+        fontFamily="var(--font-mono)"
+        className="tnum"
+        style={{ paintOrder: "stroke" }}
+        stroke="var(--color-slate-bark-950)"
+        strokeWidth={4}
+        strokeLinejoin="round"
+      >
+        {label}
+      </text>
+      {sub && (
+        <text
+          x={midX}
+          y={midY + (flip ? -20 : 29)}
+          textAnchor="middle"
+          fill={color}
+          opacity={0.65}
+          fontSize={fontSize - 2}
+          fontFamily="var(--font-mono)"
+          className="tnum"
+          style={{ paintOrder: "stroke" }}
+          stroke="var(--color-slate-bark-950)"
+          strokeWidth={4}
+          strokeLinejoin="round"
+        >
+          {sub}
+        </text>
+      )}
+    </g>
+  );
+}
+
+/** Leader line with a label at the end. */
+export function Leader({
+  x1,
+  y1,
+  x2,
+  y2,
+  label,
+  color = "var(--color-slate-bark-300)",
+  anchor = "start",
+  fontSize = 10,
+}: {
+  x1: number;
+  y1: number;
+  x2: number;
+  y2: number;
+  label: string;
+  color?: string;
+  anchor?: "start" | "end" | "middle";
+  fontSize?: number;
+}) {
+  return (
+    <g pointerEvents="none">
+      <line
+        x1={x1}
+        y1={y1}
+        x2={x2}
+        y2={y2}
+        stroke={color}
+        strokeWidth={1}
+        opacity={0.7}
+      />
+      <circle cx={x1} cy={y1} r={2} fill={color} />
+      <text
+        x={x2}
+        y={y2}
+        textAnchor={anchor}
+        dominantBaseline="middle"
+        fill={color}
+        fontSize={fontSize}
+        fontFamily="var(--font-mono)"
+        style={{ paintOrder: "stroke" }}
+        stroke="var(--color-slate-bark-950)"
+        strokeWidth={4}
+        strokeLinejoin="round"
+      >
+        {label}
+      </text>
+    </g>
+  );
+}
+
+export function Tag({
+  children,
+  color = "var(--color-slate-bark-300)",
+}: {
+  children: ReactNode;
+  color?: string;
+}) {
+  return (
+    <g>
+      <text
+        x={0}
+        y={0}
+        fill={color}
+        fontSize={9}
+        fontFamily="var(--font-mono)"
+        letterSpacing="0.08em"
+        style={{ paintOrder: "stroke" }}
+        stroke="var(--color-slate-bark-950)"
+        strokeWidth={4}
+        strokeLinejoin="round"
+      >
+        {children}
+      </text>
+    </g>
+  );
+}
+
+/** Orthonormal basis for a wall run, used to place offsets along a run. */
+export function wallBasis(a: Vec2, b: Vec2) {
+  const dx = b.x - a.x;
+  const dy = b.y - a.y;
+  const len = Math.hypot(dx, dy) || 1;
+  return {
+    len,
+    ux: dx / len,
+    uy: dy / len,
+    nx: -dy / len,
+    ny: dx / len,
+  };
+}
