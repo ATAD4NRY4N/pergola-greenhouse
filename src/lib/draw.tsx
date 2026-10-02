@@ -61,6 +61,48 @@ export function fitPoints(
   };
 }
 
+/** Fit inside a camera-independent bound so orbiting never changes model scale. */
+export function fitPointsStable(
+  points: Vec3[],
+  yawDeg: number,
+  tiltDeg: number,
+  width: number,
+  height: number,
+  pad = 56,
+): Fit {
+  const pts = points.length > 0 ? points : [{ x: 0, y: 0, z: 0 }];
+  const minX = Math.min(...pts.map((point) => point.x));
+  const maxX = Math.max(...pts.map((point) => point.x));
+  const minY = Math.min(...pts.map((point) => point.y));
+  const maxY = Math.max(...pts.map((point) => point.y));
+  const minZ = Math.min(...pts.map((point) => point.z));
+  const maxZ = Math.max(...pts.map((point) => point.z));
+  const centre = {
+    x: (minX + maxX) / 2,
+    y: (minY + maxY) / 2,
+    z: (minZ + maxZ) / 2,
+  };
+  const radius = Math.max(
+    0.001,
+    Math.hypot(maxX - minX, maxY - minY, maxZ - minZ) / 2,
+  );
+  const scale =
+    Math.min(Math.max(1, width - pad * 2), Math.max(1, height - pad * 2)) /
+    (radius * 2);
+  const raw = makeProjector(yawDeg, tiltDeg);
+  const projectedCentre = raw(centre);
+  return {
+    scale,
+    project: (point: Vec3) => {
+      const projected = raw(point);
+      return {
+        x: width / 2 + (projected.u - projectedCentre.u) * scale,
+        y: height / 2 + (projected.v - projectedCentre.v) * scale,
+      };
+    },
+  };
+}
+
 /* ------------------------------------------------------------------ */
 /* SVG helpers                                                         */
 /* ------------------------------------------------------------------ */

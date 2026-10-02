@@ -1,6 +1,6 @@
 import { useMemo, useRef, useState } from "react";
 import type { Model, Vec3 } from "../../lib/model";
-import { centroid3, fitPoints, lerpPoly, polyPoints } from "../../lib/draw";
+import { centroid3, fitPointsStable, lerpPoly, polyPoints } from "../../lib/draw";
 
 const KIND_STYLE: Record<
   string,
@@ -80,7 +80,7 @@ export function Axonometric({
     }
     for (const c of model.corners) pts.push({ x: c.at.x, y: c.at.y, z: 0 });
     if (pts.length === 0) pts.push({ x: 0, y: 0, z: 0 }, { x: 1, y: 1, z: 1 });
-    return fitPoints(pts, yawValue, tiltValue, width, height, 64);
+    return fitPointsStable(pts, yawValue, tiltValue, width, height, 64);
   }, [model, yawValue, tiltValue, width, height]);
 
   /* Pan is applied after the fit, so moving the model never rescales it. */
