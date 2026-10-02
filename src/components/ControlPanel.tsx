@@ -10,8 +10,11 @@ import {
   RotateCcw,
   Factory,
   TriangleAlert,
+  Minus,
+  Plus,
+  Move3d,
 } from "lucide-react";
-import { useState, type ReactNode } from "react";
+import { useRef, useState, type ReactNode } from "react";
 
 /* ------------------------------------------------------------------ */
 /* Primitives                                                          */
@@ -74,43 +77,125 @@ function Dim({
   hint?: string;
   onChange: (v: number) => void;
 }) {
+  const clampTo = (v: number) => Math.min(max, Math.max(min, v));
+  const scrub = useRef<{
+    startX: number;
+    startValue: number;
+    active: boolean;
+  } | null>(null);
+
+  // Drag the number left and right to scrub it. Much quicker than aiming for
+  // the slider thumb when you already know roughly what you want.
+  const onScrubDown = (e: React.PointerEvent) => {
+    (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+    scrub.current = { startX: e.clientX, startValue: value, active: true };
+  };
+  const onScrubMove = (e: React.PointerEvent) => {
+    const s = scrub.current;
+    if (!s?.active) return;
+    const span = max - min;
+    const perPx = span / 320;
+    onChange(clampTo(s.startValue + (e.clientX - s.startX) * perPx));
+  };
+  const onScrubUp = () => {
+    if (scrub.current) scrub.current.active = false;
+  };
+
+  const decimals = step < 1 ? String(step).split(".")[1]?.length ?? 2 : 0;
+  const display = unit === "m" ? value.toFixed(decimals) : String(Math.round(value));
+
   return (
     <div>
-      <div className="flex items-baseline justify-between gap-2">
-        <Label>{label}</Label>
-        <div className="flex items-center gap-1">
+      <div className="flex items-center gap-1.5">
+        <Stepper
+          onClick={() => onChange(clampTo(value - step))}
+          disabled={value <= min}
+          title={`Decrease ${label}`}
+        >
+          <Minus className="size-3.5" />
+        </Stepper>
+
+        <span className="min-w-0 flex-1">
+          <span
+            className="pf-scrub block select-none text-xs font-medium text-slate-bark-300"
+            onPointerDown={onScrubDown}
+            onPointerMove={onScrubMove}
+            onPointerUp={onScrubUp}
+            onPointerCancel={onScrubUp}
+            title="Drag left and right to scrub"
+          >
+            {label}
+          </span>
+        </span>
+
+        <div className="flex items-center gap-0.5">
           <Input
             type="number"
-            value={unit === "m" ? value : Math.round(value)}
+            value={display}
             min={min}
             max={max}
             step={step}
             onChange={(e) => {
               const n = Number(e.target.value);
-              if (!Number.isNaN(n)) onChange(Math.min(max, Math.max(min, n)));
+              if (!Number.isNaN(n)) onChange(clampTo(n));
             }}
-            className="h-7 w-20 px-2 text-right font-mono text-xs tnum"
+            className="h-8 w-[4.5rem] px-2 text-right font-mono text-xs tnum"
           />
           <span className="w-4 font-mono text-[10px] text-slate-bark-500">
             {unit}
           </span>
         </div>
+
+        <Stepper
+          onClick={() => onChange(clampTo(value + step))}
+          disabled={value >= max}
+          title={`Increase ${label}`}
+        >
+          <Plus className="size-3.5" />
+        </Stepper>
       </div>
+
       <input
         type="range"
+        className="pf-slider mt-0.5"
         min={min}
         max={max}
         step={step}
         value={value}
         onChange={(e) => onChange(Number(e.target.value))}
-        className="mt-1.5 h-1.5 w-full cursor-pointer appearance-none rounded-full bg-slate-bark-800 accent-canopy-400"
+        aria-label={label}
       />
+
       {hint && (
-        <p className="mt-1 font-mono text-[10px] leading-tight text-slate-bark-500">
+        <p className="font-mono text-[10px] leading-tight text-slate-bark-500">
           {hint}
         </p>
       )}
     </div>
+  );
+}
+
+function Stepper({
+  children,
+  onClick,
+  disabled,
+  title,
+}: {
+  children: ReactNode;
+  onClick: () => void;
+  disabled?: boolean;
+  title?: string;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      disabled={disabled}
+      title={title}
+      className="flex size-7 shrink-0 items-center justify-center rounded-md border border-slate-bark-700 bg-slate-bark-950 text-slate-bark-400 transition-colors hover:border-canopy-700 hover:bg-canopy-900/60 hover:text-canopy-200 active:bg-canopy-500 active:text-slate-bark-950 disabled:pointer-events-none disabled:opacity-30"
+    >
+      {children}
+    </button>
   );
 }
 
@@ -202,11 +287,13 @@ export function ControlPanel({
   const setCorner = (id: CornerId, fix: CornerFix) =>
     onChange({ corners: { ...design.corners, [id]: fix } });
 
-  const frontRun = Math.hypot(design.width, design.depthRight - design.depthLeft);
+  // The front run is straight, so both front corners are a true 90 deg and any
+  // skew lands on the back, where the back-left corner reaches further out.
+  const frontRun = design.width;
   const delta = design.depthLeft - design.depthRight;
-  const frontLeftAngle =
-    (Math.atan2(delta, design.width) * 180) / Math.PI + 90;
-  const frontRightAngle = 180 - frontLeftAngle;
+  const skew = (Math.atan2(Math.abs(delta), design.width) * 180) / Math.PI;
+  const backLeftAngle = delta >= 0 ? 90 - skew : 90 + skew;
+  const backRightAngle = 180 - backLeftAngle;
 
   return (
     <div className="panel-scroll h-full overflow-y-auto">
@@ -222,6 +309,11 @@ export function ControlPanel({
         </Button>
       </div>
 
+      <p className="flex items-start gap-1.5 border-b border-slate-bark-800/80 bg-slate-bark-950/40 px-4 py-2 font-mono text-[10px] leading-relaxed text-slate-bark-500">
+        <Move3d className="mt-px size-3 shrink-0 text-canopy-500" />
+        Drag a label to scrub it, drag the slider, or use the −/+ buttons.
+      </p>
+
       <Section title="Footprint" icon={<Layers className="size-3.5" />}>
         <Dim
           label="Overall width"
@@ -230,47 +322,48 @@ export function ControlPanel({
           max={14}
           step={0.05}
           onChange={(v) => set("width", v)}
-          hint={`${mmNum(design.width)} across, log cabin side to brick wall`}
+          hint={`${mmNum(design.width)} across, log cabin side to wall/fence side`}
         />
         <Dim
-          label="Depth — left side"
+          label="Depth — left run"
           value={design.depthLeft}
           min={2}
           max={14}
           step={0.05}
           onChange={(v) => set("depthLeft", v)}
-          hint={`${mmNum(design.depthLeft)} — this is your deep side`}
+          hint={`${mmNum(design.depthLeft)} — the log cabin run, your deep side`}
         />
         <Dim
-          label="Depth — right side"
+          label="Depth — right run"
           value={design.depthRight}
           min={2}
           max={14}
           step={0.05}
           onChange={(v) => set("depthRight", v)}
-          hint={`${mmNum(design.depthRight)} — match the left to square the front corners`}
+          hint={`${mmNum(design.depthRight)} — match the left to square the back corners up`}
         />
         <div className="rounded-md border border-slate-bark-800 bg-slate-bark-950/60 p-2.5">
           <p className="font-mono text-[10px] leading-relaxed text-slate-bark-400">
             Front run{" "}
             <span className="text-canopy-300 tnum">{mmNum(frontRun)}</span> ·
-            front-left{" "}
+            front corners{" "}
+            <span className="text-canopy-300 tnum">90.0°</span> · back-left{" "}
             <span
               className={cn(
                 "tnum",
-                Math.abs(frontLeftAngle - 90) > 0.25 ? "text-brass-400" : "text-canopy-300",
+                Math.abs(backLeftAngle - 90) > 0.25 ? "text-brass-400" : "text-canopy-300",
               )}
             >
-              {frontLeftAngle.toFixed(1)}°
+              {backLeftAngle.toFixed(1)}°
             </span>{" "}
-            · front-right{" "}
+            · back-right{" "}
             <span
               className={cn(
                 "tnum",
-                Math.abs(frontRightAngle - 90) > 0.25 ? "text-brass-400" : "text-canopy-300",
+                Math.abs(backRightAngle - 90) > 0.25 ? "text-brass-400" : "text-canopy-300",
               )}
             >
-              {frontRightAngle.toFixed(1)}°
+              {backRightAngle.toFixed(1)}°
             </span>
           </p>
         </div>
@@ -284,7 +377,7 @@ export function ControlPanel({
           max={4}
           step={0.05}
           onChange={(v) => set("eaveLeft", v)}
-          hint="Top of ring rail, door side"
+          hint="Top of ring rail, log cabin side"
         />
         <Dim
           label="Eave — right (high)"
@@ -293,7 +386,7 @@ export function ControlPanel({
           max={4.5}
           step={0.05}
           onChange={(v) => set("eaveRight", v)}
-          hint="Top of ring rail, brick wall side"
+          hint="Top of ring rail, door side"
         />
         <Dim
           label="Roof overhang"
@@ -451,31 +544,23 @@ export function ControlPanel({
           onChange={(v) => set("glazeFront", v)}
         />
         <Toggle
-          label="Glaze the left run"
-          checked={design.glazeLeft}
-          onChange={(v) => set("glazeLeft", v)}
+          label="Glaze the right run"
+          checked={design.glazeRight}
+          onChange={(v) => set("glazeRight", v)}
         />
       </Section>
 
       <Section title="Sliding doors" icon={<DoorOpen className="size-3.5" />}>
-        <Seg
-          label="Leaf width"
-          value={design.doorLeafWidth}
-          options={[
-            { value: 1.219, label: "1 sheet" },
-            { value: 2.438, label: "2 sheets" },
-          ]}
-          onChange={(v) => set("doorLeafWidth", v)}
-        />
-        <Seg
-          label="Leaf height"
-          value={design.doorLeafHeight}
-          options={[
-            { value: 1.219, label: "1 sheet" },
-            { value: 2.438, label: "2 sheets" },
-          ]}
-          onChange={(v) => set("doorLeafHeight", v)}
-        />
+        <div className="rounded-md border border-brass-400/30 bg-brass-400/5 px-3 py-2.5">
+          <p className="font-mono text-[10px] uppercase tracking-[0.14em] text-brass-300">
+            Leaf is fixed
+          </p>
+          <p className="mt-1 text-[11px] leading-relaxed text-slate-bark-300">
+            One whole 2438 &times; 1219 mm sheet per leaf, stood on its side and
+            hung off the track C purlin on two wheels, barn-door style. Never
+            cut, never two sheets.
+          </p>
+        </div>
         <Dim
           label="Front — leaves"
           value={design.frontDoors}
@@ -487,6 +572,7 @@ export function ControlPanel({
         />
         <Dim
           label="Front — offset from left corner"
+          hint="Measured from the front-left corner along the straight front run."
           value={design.frontDoorOffset}
           min={0}
           max={10}
@@ -494,21 +580,21 @@ export function ControlPanel({
           onChange={(v) => set("frontDoorOffset", v)}
         />
         <Dim
-          label="Left — leaves"
-          value={design.leftDoors}
+          label="Right — leaves"
+          value={design.rightDoors}
           min={0}
           max={5}
           step={1}
           unit="mm"
-          onChange={(v) => set("leftDoors", Math.round(v))}
+          onChange={(v) => set("rightDoors", Math.round(v))}
         />
         <Dim
-          label="Left — offset from front corner"
-          value={design.leftDoorOffset}
+          label="Right — offset from front corner"
+          value={design.rightDoorOffset}
           min={0}
           max={10}
           step={0.05}
-          onChange={(v) => set("leftDoorOffset", v)}
+          onChange={(v) => set("rightDoorOffset", v)}
         />
         <div>
           <Label>Door position</Label>
@@ -534,16 +620,16 @@ export function ControlPanel({
           design.depthLeft === design.depthRight ? (
             <Badge tone="green">all square</Badge>
           ) : (
-            <Badge tone="brass">front skewed</Badge>
+            <Badge tone="brass">back skewed</Badge>
           )
         }
       >
         {(
           [
-            ["bl", "Back-left", "against log cabin", 90],
-            ["br", "Back-right", "against brick wall", 90],
-            ["fr", "Front-right", "doors side", frontRightAngle],
-            ["fl", "Front-left", "doors side", frontLeftAngle],
+            ["fl", "Front-left", "doors, straight front", 90],
+            ["fr", "Front-right", "doors, straight front", 90],
+            ["br", "Back-right", "against wall/fence", backRightAngle],
+            ["bl", "Back-left", "against wall/fence", backLeftAngle],
           ] as [CornerId, string, string, number][]
         ).map(([id, label, sub, angle]) => {
           const fix = design.corners[id];

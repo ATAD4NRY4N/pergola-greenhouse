@@ -7,15 +7,35 @@
  *
  * Coordinate system (plan):
  *   x runs left -> right   (0 .. width)
- *   y runs back  -> front  (0 .. depth, the back edge sits on the log cabin)
+ *   y runs back  -> front  (0 .. depth)
  *   z is height above ground.
  *
- * The back and right sides are treated as open (they sit against the log
- * cabin and the brick wall / timber fence), so they carry structure only.
+ * The front run is dead straight, so both front corners are a true 90 deg.
+ * The offset lives on the back: with depthLeft > depthRight the back-left
+ * corner reaches further away than the back-right one.
+ *
+ * The back and left sides are treated as open (they sit against the
+ * wall / fence and the log cabin), so they carry structure only. Sliding
+ * doors and glazing are on the front and right runs.
  */
 
 export const SHEET_LONG = 2.438; // 8 ft
 export const SHEET_SHORT = 1.219; // 4 ft
+
+/**
+ * A sliding door leaf is always exactly one 8x4 sheet stood on its side.
+ * It is never two sheets and never a cut size — the whole point of hanging
+ * it from a C purlin is that a whole sheet drops straight in.
+ */
+export const DOOR_LEAF_W = SHEET_SHORT;
+export const DOOR_LEAF_H = SHEET_LONG;
+
+/** Drop rod between the perimeter ring and the door track C purlin, metres. */
+export const TRACK_DROP = 0.12;
+/** Track wheel diameter, metres. */
+export const WHEEL_DIA = 0.05;
+/** Clearance between the track underside and the top of the leaf, metres. */
+export const LEAF_GAP = 0.02;
 
 export type CornerId = "bl" | "br" | "fl" | "fr";
 export type CornerFix = "rigid90" | "adjustable";
@@ -25,10 +45,10 @@ export type RingBuild = "single" | "double";
 export interface Design {
   name: string;
 
-  /* Footprint */
+  /* Footprint. The front run is straight; the offset is on the back. */
   width: number; // m, left -> right
-  depthLeft: number; // m, back -> front on the left (the deep side)
-  depthRight: number; // m, back -> front on the right
+  depthLeft: number; // m, left run, front edge to back-left corner
+  depthRight: number; // m, right run, front edge to back-right corner
 
   /* Heights — top of the ring rail at each end of the mono-pitch */
   eaveLeft: number; // m
@@ -61,16 +81,15 @@ export interface Design {
   polyThickness: number; // mm
   roofOverhang: number; // m all round
 
-  /* Sliding doors */
-  doorLeafWidth: number; // m (1.219 or 2.438)
-  doorLeafHeight: number; // m (1.219 or 2.438)
+  /* Sliding doors — leaf size is fixed at one 8x4 sheet, so only count and
+     position are adjustable. Doors sit on the front and right runs. */
   frontDoors: number; // number of leaves on the front run
-  leftDoors: number; // number of leaves on the left run
-  frontDoorOffset: number; // m in from the left corner
-  leftDoorOffset: number; // m back from the front-left corner
+  rightDoors: number; // number of leaves on the right run
+  frontDoorOffset: number; // m in from the front-left corner
+  rightDoorOffset: number; // m back from the front-right corner
   doorOpen: number; // 0..1 — display only
   glazeFront: boolean;
-  glazeLeft: boolean;
+  glazeRight: boolean;
 
   /* Corner fixings */
   corners: Record<CornerId, CornerFix>;
@@ -100,16 +119,15 @@ export const DEFAULT_DESIGN: Design = {
   polyWall: "twin",
   polyThickness: 4,
   roofOverhang: 0.3,
-  doorLeafWidth: SHEET_SHORT,
-  doorLeafHeight: SHEET_LONG,
   frontDoors: 2,
-  leftDoors: 2,
+  rightDoors: 2,
   frontDoorOffset: 2.4,
-  leftDoorOffset: 2.2,
+  rightDoorOffset: 2.2,
   doorOpen: 0,
   glazeFront: true,
-  glazeLeft: true,
-  corners: { bl: "rigid90", br: "rigid90", fl: "adjustable", fr: "adjustable" },
+  glazeRight: true,
+  // Front corners are square, back corners are skewed by the offset.
+  corners: { bl: "adjustable", br: "adjustable", fl: "rigid90", fr: "rigid90" },
 };
 
 /* ------------------------------------------------------------------ */
@@ -165,20 +183,25 @@ export interface PostNode {
 
 export interface DoorLeaf {
   id: string;
-  side: "front" | "left";
-  /** Along-wall parameter of the leaf centre, 0..1 of the run length. */
+  side: "front" | "right";
+  /** Closed position of the leaf along the run, in metres from the corner. */
   runStart: number;
   runEnd: number;
+  /** Direction the leaf travels when it opens, and how far it goes. */
+  slideDir: 1 | -1;
+  travel: number;
   poly: Vec3[];
-  /** Parked position of the leaf (already offset by `doorOpen`). */
+  /** The same leaf after it has slid fully open. */
   parkedPoly: Vec3[];
   width: number;
   height: number;
+  /** Height of the wheel axle, riding on the track C purlin flange. */
+  wheelCentre: number;
 }
 
 export interface WallBay {
   id: string;
-  side: "front" | "left";
+  side: "front" | "right";
   type: "glazed" | "door" | "open";
   poly: Vec3[];
   /** Along-wall centre, used for elevations. */
@@ -233,8 +256,10 @@ export interface CutListItem {
 export interface Model {
   design: Design;
   plan: Record<CornerId, Vec2>;
-  /** Plan depth at a given x. */
+  /** Plan depth at a given x (the front run is straight, so this is flat). */
   depthAt: (x: number) => number;
+  /** y of the sloped back run at a given x. */
+  backAt: (x: number) => number;
   /** Top of structure at a given x. */
   eaveAt: (x: number) => number;
   roofPitchDeg: number;
@@ -348,18 +373,29 @@ export function buildModel(input: Design): Model {
   const zL = d.eaveLeft;
   const zR = d.eaveRight;
 
+  /* The front run is dead straight, so both front corners are a true 90 deg.
+     The offset lives on the back: with depthLeft > depthRight the back-left
+     corner reaches further away than the back-right one. */
+  const frontY = Math.max(dL, dR);
+  const backY0 = frontY - dL;
+  const backY1 = frontY - dR;
+
   const plan: Record<CornerId, Vec2> = {
-    bl: { x: 0, y: 0 },
-    br: { x: W, y: 0 },
-    fr: { x: W, y: dR },
-    fl: { x: 0, y: dL },
+    bl: { x: 0, y: backY0 },
+    br: { x: W, y: backY1 },
+    fr: { x: W, y: frontY },
+    fl: { x: 0, y: frontY },
   };
 
-  const depthAt = (x: number) => dL + ((dR - dL) * x) / W;
+  /** y of the straight front run at a given x. */
+  const depthAt = (_x: number) => frontY;
+  /** y of the sloped back run at a given x. */
+  const backAt = (x: number) => backY0 + ((backY1 - backY0) * x) / W;
   const eaveAt = (x: number) => zL + ((zR - zL) * x) / W;
   const roofPitchDeg = (Math.atan2(zR - zL, W) * 180) / Math.PI;
 
-  const maxDepth = Math.max(dL, dR);
+  const minY = Math.min(backY0, backY1);
+  const maxDepth = frontY;
   const members: Member[] = [];
   const panels: Panel[] = [];
   const warnings: Warning[] = [];
@@ -401,10 +437,10 @@ export function buildModel(input: Design): Model {
     }
   };
 
-  addRunPosts(plan.bl, plan.br, "bl", "br"); // back  — log cabin
-  addRunPosts(plan.br, plan.fr, "br", "fr"); // right — brick wall
+  addRunPosts(plan.bl, plan.br, "bl", "br"); // back  — wall / fence
+  addRunPosts(plan.br, plan.fr, "br", "fr"); // right — doors
   addRunPosts(plan.fr, plan.fl, "fr", "fl"); // front — doors
-  addRunPosts(plan.fl, plan.bl, "fl", "bl"); // left  — doors
+  addRunPosts(plan.fl, plan.bl, "fl", "bl"); // left  — log cabin
 
   posts.sort((p, q) => p.at.x - q.at.x || p.at.y - q.at.y);
 
@@ -427,42 +463,53 @@ export function buildModel(input: Design): Model {
   // 45 degree braces from each post head into the ring rail. They are the
   // only way to shorten the front and back ring span without putting a post
   // inside the growing space.
+  //
+  // A brace only exists where there is actually rail to land on: along the
+  // tangent of an edge the post sits on, aimed at the neighbouring post and
+  // stopping short of the end of the run.
   const braceLen = Math.min(
     d.kneeBraceLength,
     Math.max(d.baySpacing * 0.45, 0.3),
   );
   let braceCount = 0;
   if (d.kneeBraces) {
+    const edges: [Vec2, Vec2][] = [
+      [plan.bl, plan.br],
+      [plan.br, plan.fr],
+      [plan.fr, plan.fl],
+      [plan.fl, plan.bl],
+    ];
+    const ON_EDGE = Math.max(d.postSize / 2000, 0.02);
+
     for (const p of posts) {
-      const top = ringZ(p.at.x);
-      const zLow = top - braceLen;
+      const zLow = ringZ(p.at.x) - braceLen;
       if (zLow < 0.35) continue;
-      const runsHere: [Vec2, Vec2][] = [
-        [plan.bl, plan.br],
-        [plan.br, plan.fr],
-        [plan.fr, plan.fl],
-        [plan.fl, plan.bl],
-      ];
-      for (const [a, b] of runsHere) {
-        const dx = b.x - a.x;
-        const dy = b.y - a.y;
-        const len = Math.hypot(dx, dy) || 1;
-        const ux = dx / len;
-        const uy = dy / len;
+
+      for (const [a, b] of edges) {
+        const ex = b.x - a.x;
+        const ey = b.y - a.y;
+        const len = Math.hypot(ex, ey) || 1;
+        const ux = ex / len;
+        const uy = ey / len;
+        // Distance from the post to the edge line: zero means it lies on it.
+        const t = (p.at.x - a.x) * ux + (p.at.y - a.y) * uy;
+        const off = Math.abs((p.at.x - a.x) * -uy + (p.at.y - a.y) * ux);
+        if (off > ON_EDGE) continue;
+
         for (const dir of [1, -1]) {
-          const hx = p.at.x + ux * braceLen * dir;
-          const hy = p.at.y + uy * braceLen * dir;
-          if (hx < -0.05 || hx > W + 0.05) continue;
-          const a3: Vec3 = { x: p.at.x, y: p.at.y, z: zLow };
-          const b3: Vec3 = { x: hx, y: hy, z: ringZ(hx) };
-          const l = Math.hypot(hx - p.at.x, hy - p.at.y, b3.z - a3.z);
-          if (l < 0.2) continue;
+          const target = t + braceLen * dir;
+          // Must still be over rail, and must not run back past the corner.
+          if (target < 0.15 || target > len - 0.15) continue;
+          const hx = a.x + ux * target;
+          const hy = a.y + uy * target;
+          const zHigh = ringZ(hx);
+          if (zHigh - zLow < 0.2) continue;
           members.push({
             id: mid_(),
             kind: "brace",
-            a: a3,
-            b: b3,
-            length: l,
+            a: { x: p.at.x, y: p.at.y, z: zLow },
+            b: { x: hx, y: hy, z: zHigh },
+            length: Math.hypot(hx - p.at.x, hy - p.at.y, zHigh - zLow),
             label: "knee brace",
           });
           braceCount++;
@@ -512,7 +559,7 @@ export function buildModel(input: Design): Model {
 
   /* ---------------- Roof frame: Z girders + Z purlins --------------- */
 
-  // Primary Z girders run back -> front and land on the front & back ring
+  // Primary Z girders run front -> back and land on the front & back ring
   // rails, so the 8.5 m opening is spanned by the ring, not by a purlin.
   const girders: Member[] = [];
   for (let i = 0; i < d.girderCount; i++) {
@@ -567,15 +614,15 @@ export function buildModel(input: Design): Model {
     { x: 0, y: SHEET_SHORT },
   ];
   const roofClip: Vec2[] = [
-    { x: -ov, y: -ov },
-    { x: W + ov, y: -ov },
+    { x: -ov, y: minY - ov },
+    { x: W + ov, y: minY - ov },
     { x: W + ov, y: maxDepth + ov },
     { x: -ov, y: maxDepth + ov },
   ];
   const structureClip: Vec2[] = [plan.bl, plan.br, plan.fr, plan.fl];
 
   const cols = Math.ceil((W + 2 * ov) / SHEET_LONG);
-  const rows = Math.ceil((maxDepth + 2 * ov) / SHEET_SHORT);
+  const rows = Math.ceil((maxDepth - minY + 2 * ov) / SHEET_SHORT);
   const fullArea = polyArea(sheetPoly);
   const roofSheets: SheetCell[] = [];
 
@@ -609,7 +656,7 @@ export function buildModel(input: Design): Model {
   const wallBays: WallBay[] = [];
   const doors: DoorLeaf[] = [];
   const doorSpecs: {
-    side: "front" | "left";
+    side: "front" | "right";
     leaves: number;
     offset: number;
     runLen: number;
@@ -622,32 +669,46 @@ export function buildModel(input: Design): Model {
     side: "front",
     leaves: d.frontDoors,
     offset: d.frontDoorOffset,
-    runLen: Math.hypot(W, dR - dL),
-    toWorld: (t) => {
-      // t measured from the left corner towards the right corner along the front edge
-      const frac = t / Math.hypot(W, dR - dL);
-      return { x: W * frac, y: depthAt(W * frac) };
-    },
+    runLen: W,
+    toWorld: (t) => ({ x: (t / W) * W, y: frontY }),
     topAt: (x) => eaveAt(x),
     glazed: d.glazeFront,
   });
 
   doorSpecs.push({
-    side: "left",
-    leaves: d.leftDoors,
-    offset: d.leftDoorOffset,
-    runLen: dL,
-    toWorld: (t) => ({ x: 0, y: dL - t }),
-    topAt: () => zL,
-    glazed: d.glazeLeft,
+    side: "right",
+    leaves: d.rightDoors,
+    offset: d.rightDoorOffset,
+    runLen: dR,
+    toWorld: (t) => ({ x: W, y: frontY - t }),
+    topAt: () => zR,
+    glazed: d.glazeRight,
   });
 
-  const doorLeafCount = d.frontDoors + d.leftDoors;
+  const doorLeafCount = d.frontDoors + d.rightDoors;
 
   for (const spec of doorSpecs) {
-    const leafW = d.doorLeafWidth;
-    const leafH = d.doorLeafHeight;
+    const leafW = DOOR_LEAF_W;
+    const leafH = DOOR_LEAF_H;
     const gap = 0.02;
+    const trackD = Math.max(0.05, d.ringDepth / 1000);
+
+    /* Vertical stack, barn-door style, measured down from the perimeter ring:
+
+         perimeter ring rail   (underside)
+           |  drop rod, TRACK_DROP
+         door track C purlin   (top face ... underside)  <- the wheels run here
+           |  wheel, WHEEL_DIA
+         door leaf             (top ... bottom), one whole 8x4 sheet
+    */
+    const ringUnder = (t: number) =>
+      spec.topAt(spec.toWorld(t).x) - d.ringDepth / 1000;
+    const trackTop = (t: number) => ringUnder(t) - TRACK_DROP;
+    const trackBottom = (t: number) => trackTop(t) - trackD;
+    const leafTop = (t: number) => trackBottom(t) - LEAF_GAP;
+    const leafBottom = (t: number) => leafTop(t) - leafH;
+    /** Walls and studs stop under the leaf. */
+    const headOf = (t: number) => leafTop(t);
 
     // --- door openings, expressed as [start, end] along the run ------
     const openings: [number, number][] = [];
@@ -668,13 +729,7 @@ export function buildModel(input: Design): Model {
       .filter((v) => v >= -1e-6 && v <= spec.runLen + 1e-6)
       .sort((a, b) => a - b);
 
-    // --- head rail + sill rail ---------------------------------------
-    const headDrop = 0.16 + 0.09; // casing + wheel/track zone
-    const headOf = (t: number) => {
-      const p = spec.toWorld(t);
-      return spec.topAt(p.x) - d.ringDepth / 1000 - headDrop;
-    };
-
+    // --- sill rail -----------------------------------------------------
     members.push({
       id: mid_(),
       kind: "sill",
@@ -737,119 +792,124 @@ export function buildModel(input: Design): Model {
       const [s, e] = openings[i];
       const p0 = spec.toWorld(s);
       const p1 = spec.toWorld(e);
-      const head = headOf(s);
-      const bottom = Math.max(0.02, head - leafH);
+      const bottom = leafBottom(s);
+      const top = leafTop(s);
       const poly: Vec3[] = [
         { x: p0.x, y: p0.y, z: bottom },
         { x: p1.x, y: p1.y, z: bottom },
-        { x: p1.x, y: p1.y, z: bottom + leafH },
-        { x: p0.x, y: p0.y, z: bottom + leafH },
+        { x: p1.x, y: p1.y, z: top },
+        { x: p0.x, y: p0.y, z: top },
       ];
-      // Sliding: each leaf parks one leaf-width to one side, opening a bay.
-      const slide = i * (leafW + gap);
+      /* `poly` is the leaf closed, and runStart/runEnd are its closed
+         position along the run. When it slides it travels this far and no
+         further, which is why the track has to be as long as it is. */
       const slideDir = spec.side === "front" ? -1 : 1;
-      const t0 = s + slide * slideDir;
-      const t1 = e + slide * slideDir;
-      const q0 = spec.toWorld(t0);
-      const q1 = spec.toWorld(t1);
+      const park = i * (leafW + gap);
+      const q0 = spec.toWorld(s + park * slideDir);
+      const q1 = spec.toWorld(e + park * slideDir);
+      const qTop = leafTop(s + park * slideDir);
       const parkedPoly: Vec3[] = [
-        { x: q0.x, y: q0.y, z: bottom },
-        { x: q1.x, y: q1.y, z: bottom },
-        { x: q1.x, y: q1.y, z: bottom + leafH },
-        { x: q0.x, y: q0.y, z: bottom + leafH },
+        { x: q0.x, y: q0.y, z: qTop - leafH },
+        { x: q1.x, y: q1.y, z: qTop - leafH },
+        { x: q1.x, y: q1.y, z: qTop },
+        { x: q0.x, y: q0.y, z: qTop },
       ];
 
       const leaf: DoorLeaf = {
         id: `door-${spec.side}-${i}`,
         side: spec.side,
-        runStart: t0,
-        runEnd: t1,
+        runStart: s,
+        runEnd: e,
+        slideDir,
+        travel: park,
         poly,
         parkedPoly,
         width: leafW,
         height: leafH,
+        wheelCentre: trackTop(s) + WHEEL_DIA / 2,
       };
       doors.push(leaf);
       panels.push({ id: `dp-${spec.side}-${i}`, kind: "door", poly, opacity: 0.32 });
 
       // casing / trim around the leaf: four mitred sticks
-      members.push({
-        id: mid_(),
-        kind: "doorframe",
-        a: poly[0],
-        b: poly[1],
-        length: dist3(poly[0], poly[1]),
-        label: "casing",
-      });
-      members.push({
-        id: mid_(),
-        kind: "doorframe",
-        a: poly[3],
-        b: poly[2],
-        length: dist3(poly[3], poly[2]),
-        label: "casing",
-      });
-      members.push({
-        id: mid_(),
-        kind: "doorframe",
-        a: poly[0],
-        b: poly[3],
-        length: dist3(poly[3], poly[0]),
-        label: "casing",
-      });
-      members.push({
-        id: mid_(),
-        kind: "doorframe",
-        a: poly[1],
-        b: poly[2],
-        length: dist3(poly[2], poly[1]),
-        label: "casing",
-      });
-      // two track wheels / hangers
+      const edges: [[Vec3, Vec3], [Vec3, Vec3], [Vec3, Vec3], [Vec3, Vec3]] = [
+        [poly[0], poly[1]],
+        [poly[3], poly[2]],
+        [poly[0], poly[3]],
+        [poly[1], poly[2]],
+      ];
+      for (const [a, b] of edges) {
+        members.push({
+          id: mid_(),
+          kind: "doorframe",
+          a,
+          b,
+          length: dist3(a, b),
+          label: "casing",
+        });
+      }
+      // Two hanger straps, each carrying a wheel on the track flange.
       for (const f of [0.22, 0.78]) {
         const p = {
           x: p0.x + (p1.x - p0.x) * f,
           y: p0.y + (p1.y - p0.y) * f,
-          z: bottom + leafH,
         };
+        const zTop = trackTop(s) + WHEEL_DIA / 2;
         members.push({
           id: mid_(),
           kind: "track",
-          a: p,
-          b: { ...p, z: bottom + leafH + 0.12 },
-          length: 0.12,
-          label: "wheel",
+          a: { ...p, z: top },
+          b: { ...p, z: zTop },
+          length: zTop - top,
+          label: "wheel hanger",
         });
       }
     }
 
-    // --- door track C purlin ------------------------------------------
-    const trackFrom = Math.max(
-      0,
-      openings.length
-        ? Math.min(...openings.map(([s]) => s)) - (spec.leaves * (leafW + 0.02))
-        : 0,
-    );
-    const trackTo = Math.min(
-      spec.runLen,
-      openings.length
-        ? Math.max(...openings.map(([, e]) => e)) + 0.15
-        : spec.runLen,
-    );
+    // --- door track C purlin, hung off the ring on drop rods ---------
+    // The track has to be long enough for every leaf in every position, so
+    // it spans the union of where they sit closed and where they park.
     if (spec.leaves > 0) {
+      const slideDir = spec.side === "front" ? -1 : 1;
+      const reach: number[] = [];
+      for (let i = 0; i < spec.leaves; i++) {
+        const [s, e] = openings[i];
+        const park = i * (leafW + gap) * slideDir;
+        // Both where it sits shut and where it ends up when open.
+        reach.push(s, e, s + park, e + park);
+      }
+      const trackFrom = Math.max(0, Math.min(...reach) - 0.12);
+      const trackTo = Math.min(spec.runLen, Math.max(...reach) + 0.12);
       const pa = spec.toWorld(trackFrom);
       const pb = spec.toWorld(trackTo);
+      const za = trackTop(trackFrom) - trackD / 2;
+      const zb = trackTop(trackTo) - trackD / 2;
       members.push({
         id: mid_(),
         kind: "track",
-        a: { x: pa.x, y: pa.y, z: headOf(trackFrom) + leafH + 0.12 },
-        b: { x: pb.x, y: pb.y, z: headOf(trackTo) + leafH + 0.12 },
-        length: dist3(
-          { x: pa.x, y: pa.y, z: headOf(trackFrom) + leafH + 0.12 },
-          { x: pb.x, y: pb.y, z: headOf(trackTo) + leafH + 0.12 },
-        ),
+        a: { x: pa.x, y: pa.y, z: za },
+        b: { x: pb.x, y: pb.y, z: zb },
+        length: dist3({ x: pa.x, y: pa.y, z: za }, { x: pb.x, y: pb.y, z: zb }),
         label: "track C purlin",
       });
+
+      // Drop rods at the jambs and midway, down from the ring underside.
+      const rodAt = [trackFrom, ...studs, trackTo]
+        .filter((t) => t >= trackFrom - 1e-6 && t <= trackTo + 1e-6)
+        .filter((t, i, arr) => arr.indexOf(t) === i);
+      for (const t of rodAt) {
+        const p = spec.toWorld(t);
+        const zTop = ringUnder(t);
+        const zBot = trackTop(t);
+        members.push({
+          id: mid_(),
+          kind: "track",
+          a: { x: p.x, y: p.y, z: zTop },
+          b: { x: p.x, y: p.y, z: zBot },
+          length: zTop - zBot,
+          label: "drop rod",
+        });
+      }
     }
   }
 
@@ -1027,21 +1087,34 @@ export function buildModel(input: Design): Model {
   cutList.push({
     id: "track",
     group: "Doors",
-    item: "Sliding door track C purlin",
+    item: "Door track C purlin",
     spec: `C${d.ringDepth}\u00d7${d.ringGauge} mm`,
     qty: 2,
     unit: "lengths",
     lengthMm: Math.ceil((W + dL) * 500),
-    note: "Hang off the ring rail on threaded drop rods.",
+    note:
+      "Horizontal, hung under the ring rail on threaded drop rods. The wheels " +
+      "run on its top flange and the leaf hangs below \u2014 a barn door.",
+  });
+
+  cutList.push({
+    id: "droprods",
+    group: "Doors",
+    item: "Track drop rods",
+    spec: "M10 threaded rod + eye bolts",
+    qty: members.filter((m) => m.label === "drop rod").length,
+    unit: "no.",
+    note: `TRACK_DROP = ${(TRACK_DROP * 1000).toFixed(0)} mm below the ring underside.`,
   });
 
   cutList.push({
     id: "wheels",
     group: "Doors",
-    item: "Track wheels & hanger kits",
-    spec: "Polycarb-safe wheel, 2 per leaf",
+    item: "Track wheels & hanger straps",
+    spec: `${(WHEEL_DIA * 1000).toFixed(0)} mm wheel, 2 per leaf`,
     qty: sheetCount * 2,
     unit: "no.",
+    note: "Use a polycarb-safe wheel with a nylon or stainless tyre.",
   });
 
   cutList.push({
@@ -1051,7 +1124,7 @@ export function buildModel(input: Design): Model {
     spec: `25\u00d725 mm aluminium box, mitred`,
     qty: sheetCount,
     unit: "sets",
-    totalM: sheetCount * 2 * (d.doorLeafWidth + d.doorLeafHeight),
+    totalM: sheetCount * 2 * (DOOR_LEAF_W + DOOR_LEAF_H),
     note: "Four sticks per leaf plus a mid rail if the leaf is two sheets tall.",
   });
 
@@ -1086,9 +1159,8 @@ export function buildModel(input: Design): Model {
     qty: sheetCount,
     unit: "sheets",
     note:
-      d.doorLeafHeight <= SHEET_SHORT && d.doorLeafWidth <= SHEET_SHORT
-        ? "One sheet per leaf, turned on its side."
-        : "One sheet per leaf, portrait, trimmed into the casing.",
+      "One whole 2438 \u00d7 1219 mm sheet per leaf, stood on its side, dropped " +
+      "into the casing. Never cut, never two sheets.",
   });
 
   cutList.push({
@@ -1178,41 +1250,45 @@ export function buildModel(input: Design): Model {
     }
   }
 
-  const headDrop = 0.25;
-  const minHead = Math.min(zL, zR) - d.ringDepth / 1000 - headDrop;
-  const doorSill = minHead - d.doorLeafHeight;
-  if (d.doorLeafHeight > minHead) {
+  // A leaf hangs from the track C purlin, which itself hangs off the ring, so
+  // the low eave has to clear: ring + drop rod + track + gap + one 8x4 sheet.
+  const trackD = Math.max(0.05, d.ringDepth / 1000);
+  const stackBelowRing = TRACK_DROP + trackD + LEAF_GAP + DOOR_LEAF_H;
+  const ringUnderLow = Math.min(zL, zR) - d.ringDepth / 1000;
+  const doorSill = ringUnderLow - stackBelowRing;
+  if (doorSill < 0) {
     warnings.push({
       level: "error",
-      title: "Doors do not fit under the low end of the ring",
+      title: "The doors do not clear the floor at the low end",
       detail:
-        `A ${d.doorLeafHeight.toFixed(2)} m leaf plus the track needs about ` +
-        `${(d.doorLeafHeight + 0.25 + d.ringDepth / 1000).toFixed(2)} m of ring height. ` +
-        `The low end only gives ${minHead.toFixed(2)} m. Raise the eave or use a shorter leaf.`,
+        `A whole 2438 mm sheet hanging off a C${d.ringDepth} track needs ` +
+        `${stackBelowRing.toFixed(2)} m below the ring underside, and the low end ` +
+        `only has ${ringUnderLow.toFixed(2)} m. Raise the low eave by ` +
+        `${Math.ceil(-doorSill * 1000)} mm or more.`,
     });
-  } else if (doorSill < 0.06) {
+  } else if (doorSill < 0.075) {
     warnings.push({
       level: "warn",
       title: `Doors only clear the floor by ${Math.round(doorSill * 1000)} mm`,
       detail:
-        "A sliding leaf needs roughly 75 mm to sweep without catching the slab. " +
-        `Raise the low eave by ${Math.ceil((0.075 - doorSill) * 1000)} mm, or drop to a single-sheet leaf.`,
+        "A sliding leaf wants roughly 75 mm to sweep without catching the slab. " +
+        `Raise the low eave by ${Math.ceil((0.075 - doorSill) * 1000)} mm.`,
     });
   }
 
-  const frontRun = Math.hypot(W, dR - dL);
-  if (d.frontDoors * d.doorLeafWidth + d.frontDoorOffset > frontRun + 0.4) {
+  const frontRun = W;
+  if (d.frontDoors * DOOR_LEAF_W + d.frontDoorOffset > frontRun + 0.4) {
     warnings.push({
       level: "warn",
       title: "Front doors run past the end of the front wall",
-      detail: `The opening needs about ${(d.frontDoorOffset + d.frontDoors * d.doorLeafWidth).toFixed(2)} m of an ${frontRun.toFixed(2)} m run.`,
+      detail: `The opening needs about ${(d.frontDoorOffset + d.frontDoors * DOOR_LEAF_W).toFixed(2)} m of an ${frontRun.toFixed(2)} m run.`,
     });
   }
-  if (d.leftDoors * d.doorLeafWidth + d.leftDoorOffset > dL + 0.4) {
+  if (d.rightDoors * DOOR_LEAF_W + d.rightDoorOffset > dR + 0.4) {
     warnings.push({
       level: "warn",
-      title: "Left doors run past the end of the left wall",
-      detail: `The opening needs about ${(d.leftDoorOffset + d.leftDoors * d.doorLeafWidth).toFixed(2)} m of a ${dL.toFixed(2)} m run.`,
+      title: "Right doors run past the end of the right wall",
+      detail: `The opening needs about ${(d.rightDoorOffset + d.rightDoors * DOOR_LEAF_W).toFixed(2)} m of a ${dR.toFixed(2)} m run.`,
     });
   }
 
@@ -1275,6 +1351,7 @@ export function buildModel(input: Design): Model {
     design: d,
     plan,
     depthAt,
+    backAt,
     eaveAt,
     roofPitchDeg,
     posts,

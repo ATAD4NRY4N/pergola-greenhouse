@@ -1,6 +1,6 @@
 import { useMemo, useRef, useState } from "react";
 import type { Model, Vec3 } from "../../lib/model";
-import { centroid3, fitPoints, polyPoints } from "../../lib/draw";
+import { centroid3, fitPoints, lerpPoly, polyPoints } from "../../lib/draw";
 
 const KIND_STYLE: Record<
   string,
@@ -13,9 +13,9 @@ const KIND_STYLE: Record<
   sill: { stroke: "#6fbf95", width: 2.5, opacity: 0.85 },
   girder: { stroke: "#7ecfb0", width: 3.4, opacity: 0.92 },
   purlin: { stroke: "#5da989", width: 1.9, opacity: 0.8 },
-  track: { stroke: "#e0b05c", width: 2.4, opacity: 0.95 },
+  track: { stroke: "#e0b05c", width: 3.2, opacity: 0.95 },
   doorframe: { stroke: "#f2d08a", width: 2.6, opacity: 0.98 },
-  brace: { stroke: "#8fd9ab", width: 2, opacity: 0.7, dash: "6 4" },
+  brace: { stroke: "#6fbf95", width: 1.8, opacity: 0.6 },
 };
 
 export function Axonometric({
@@ -135,19 +135,19 @@ export function Axonometric({
         strokeDasharray="4 4"
       />
 
-      {/* context: log cabin (back) and brick wall (right) */}
+      {/* context: wall/fence (back) and log cabin (left) */}
       <ContextWall
         a={{ x: P({ x: model.plan.bl.x, y: model.plan.bl.y, z: 0 }).x, y: P({ x: model.plan.bl.x, y: model.plan.bl.y, z: 0 }).y }}
         b={{ x: P({ x: model.plan.br.x, y: model.plan.br.y, z: 0 }).x, y: P({ x: model.plan.br.x, y: model.plan.br.y, z: 0 }).y }}
         heightPx={(z: number) => P({ x: model.plan.bl.x, y: model.plan.bl.y, z }).y - P({ x: model.plan.bl.x, y: model.plan.bl.y, z: 0 }).y}
-        label="LOG CABIN"
+        label="WALL / FENCE"
         color="#b0bab5"
       />
       <ContextWall
-        a={{ x: P({ x: model.plan.br.x, y: model.plan.br.y, z: 0 }).x, y: P({ x: model.plan.br.x, y: model.plan.br.y, z: 0 }).y }}
-        b={{ x: P({ x: model.plan.fr.x, y: model.plan.fr.y, z: 0 }).x, y: P({ x: model.plan.fr.x, y: model.plan.fr.y, z: 0 }).y }}
-        heightPx={(z: number) => P({ x: model.plan.br.x, y: model.plan.br.y, z }).y - P({ x: model.plan.br.x, y: model.plan.br.y, z: 0 }).y}
-        label="BRICK WALL"
+        a={{ x: P({ x: model.plan.fl.x, y: model.plan.fl.y, z: 0 }).x, y: P({ x: model.plan.fl.x, y: model.plan.fl.y, z: 0 }).y }}
+        b={{ x: P({ x: model.plan.bl.x, y: model.plan.bl.y, z: 0 }).x, y: P({ x: model.plan.bl.x, y: model.plan.bl.y, z: 0 }).y }}
+        heightPx={(z: number) => P({ x: model.plan.fl.x, y: model.plan.fl.y, z }).y - P({ x: model.plan.fl.x, y: model.plan.fl.y, z: 0 }).y}
+        label="LOG CABIN"
         color="#e0b05c"
       />
 
@@ -197,7 +197,7 @@ export function Axonometric({
 
       {/* door track wheels highlighted at the head of each leaf */}
       {model.doors.map((leaf) => {
-        const poly = (model.design.doorOpen > 0.5 ? leaf.parkedPoly : leaf.poly).map(P);
+        const poly = lerpPoly(leaf.poly, leaf.parkedPoly, model.design.doorOpen).map(P);
         const xs = poly.map((p) => p.x);
         const ys = poly.map((p) => p.y);
         return (

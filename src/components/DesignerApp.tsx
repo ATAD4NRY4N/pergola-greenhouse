@@ -32,14 +32,14 @@ import {
   CloudOff,
 } from "lucide-react";
 
-type ViewKey = "axon" | "plan" | "front" | "left" | "section";
+type ViewKey = "axon" | "plan" | "front" | "right" | "section";
 type SideKey = "cut" | "checks" | "sourcing";
 
 const VIEWS: { key: ViewKey; label: string; icon: typeof Box }[] = [
   { key: "axon", label: "3D", icon: Box },
   { key: "plan", label: "Plan", icon: MapIcon },
   { key: "front", label: "Front", icon: Columns3 },
-  { key: "left", label: "Left", icon: PanelTop },
+  { key: "right", label: "Right", icon: PanelTop },
   { key: "section", label: "Section", icon: Ruler },
 ];
 
@@ -338,10 +338,10 @@ export function DesignerApp({
                 showSteel={showSteel}
               />
             )}
-            {view === "left" && (
+            {view === "right" && (
               <ElevationView
                 model={model}
-                side="left"
+                side="right"
                 width={w}
                 height={h}
                 showSteel={showSteel}

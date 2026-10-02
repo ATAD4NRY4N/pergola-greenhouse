@@ -55,10 +55,10 @@ export function PlanView({
   const ringInset = d.ringDepth / 1000;
   const outline = (["bl", "br", "fr", "fl"] as const).map((c) => S(model.plan[c]));
   const innerOutline = [
-    S({ x: ringInset, y: ringInset }),
-    S({ x: d.width - ringInset, y: ringInset }),
-    S({ x: d.width - ringInset, y: model.depthAt(d.width) - ringInset }),
-    S({ x: ringInset, y: model.depthAt(0) - ringInset }),
+    S({ x: ringInset, y: model.plan.bl.y + ringInset }),
+    S({ x: d.width - ringInset, y: model.plan.br.y + ringInset }),
+    S({ x: d.width - ringInset, y: model.plan.fr.y - ringInset }),
+    S({ x: ringInset, y: model.plan.fl.y - ringInset }),
   ];
 
   return (
@@ -90,13 +90,13 @@ export function PlanView({
       {/* roof outline + overhang */}
       <polygon
         points={polyPoints([
-          S({ x: -d.roofOverhang, y: -d.roofOverhang }),
-          S({ x: d.width + d.roofOverhang, y: -d.roofOverhang }),
+          S({ x: -d.roofOverhang, y: model.plan.bl.y - d.roofOverhang }),
+          S({ x: d.width + d.roofOverhang, y: model.plan.br.y - d.roofOverhang }),
           S({
             x: d.width + d.roofOverhang,
-            y: d.depthRight + d.roofOverhang,
+            y: model.plan.fr.y + d.roofOverhang,
           }),
-          S({ x: -d.roofOverhang, y: d.depthLeft + d.roofOverhang }),
+          S({ x: -d.roofOverhang, y: model.plan.fl.y + d.roofOverhang }),
         ])}
         fill="none"
         stroke="var(--color-canopy-400)"
@@ -195,8 +195,8 @@ export function PlanView({
             .filter((m) => m.kind === "stud")
             .map((m) => {
               const p = S({ x: m.a.x, y: m.a.y });
-              const onFront = Math.abs(m.a.y - model.depthAt(m.a.x)) < 0.01;
-              const onLeft = Math.abs(m.a.x) < 0.01;
+              const onFront = Math.abs(m.a.y - model.plan.fl.y) < 0.01;
+              const onRight = Math.abs(m.a.x - d.width) < 0.01;
               return (
                 <g key={m.id}>
                   <circle
@@ -207,7 +207,7 @@ export function PlanView({
                     stroke="var(--color-canopy-300)"
                     strokeWidth={1.4}
                   />
-                  {(onFront || onLeft) && (
+                  {(onFront || onRight) && (
                     <circle cx={p.x} cy={p.y} r={1.2} fill="var(--color-canopy-300)" />
                   )}
                 </g>
@@ -279,15 +279,22 @@ export function PlanView({
         from={S(model.plan.bl)}
         to={S(model.plan.br)}
         dy={-26}
-        text="BACK — against log cabin"
+        text="BACK — against wall/fence"
         color="var(--color-slate-bark-300)"
+      />
+      <EdgeLabel
+        from={S(model.plan.fl)}
+        to={S(model.plan.bl)}
+        dx={-30}
+        text="LEFT — against log cabin"
+        color="var(--color-brass-400)"
       />
       <EdgeLabel
         from={S(model.plan.br)}
         to={S(model.plan.fr)}
         dx={30}
-        text="RIGHT — brick wall / fence"
-        color="var(--color-brass-400)"
+        text="RIGHT — sliding doors"
+        color="var(--color-brass-300)"
       />
       <EdgeLabel
         from={S(model.plan.fr)}
@@ -296,36 +303,29 @@ export function PlanView({
         text="FRONT — sliding doors"
         color="var(--color-brass-300)"
       />
-      <EdgeLabel
-        from={S(model.plan.fl)}
-        to={S(model.plan.bl)}
-        dx={-30}
-        text="LEFT — sliding doors"
-        color="var(--color-brass-300)"
-      />
 
       {/* dimensions */}
       <DimLine
         x1={sx(0)}
-        y1={sy(d.depthLeft)}
+        y1={sy(model.plan.fl.y)}
         x2={sx(d.width)}
-        y2={sy(d.depthRight)}
+        y2={sy(model.plan.fr.y)}
         label={mmNum(d.width)}
         color="var(--color-canopy-300)"
       />
       <DimLine
         x1={sx(0)}
-        y1={sy(0)}
+        y1={sy(model.plan.bl.y)}
         x2={sx(0)}
-        y2={sy(d.depthLeft)}
+        y2={sy(model.plan.fl.y)}
         label={mmNum(d.depthLeft)}
         color="var(--color-canopy-300)"
       />
       <DimLine
         x1={sx(d.width)}
-        y1={sy(0)}
+        y1={sy(model.plan.br.y)}
         x2={sx(d.width)}
-        y2={sy(d.depthRight)}
+        y2={sy(model.plan.fr.y)}
         label={mmNum(d.depthRight)}
         color="var(--color-canopy-300)"
       />
@@ -334,7 +334,7 @@ export function PlanView({
       {showFrame && model.posts.length > 4 && (
         <text
           x={sx(d.width / 2)}
-          y={sy(model.depthAt(d.width / 2))}
+          y={sy(model.plan.fl.y)}
           textAnchor="middle"
           fill="var(--color-slate-bark-300)"
           fontSize={10}

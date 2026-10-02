@@ -1,9 +1,14 @@
 import { useMemo } from "react";
 import type { Model } from "../../lib/model";
+import {
+  LEAF_GAP,
+  TRACK_DROP,
+  WHEEL_DIA,
+} from "../../lib/model";
 import { DimLine, Leader, polyPoints } from "../../lib/draw";
 import { mmNum } from "../../lib/utils";
 
-type Side = "front" | "left";
+type Side = "front" | "right";
 
 /**
  * True elevation looking at one of the two glazed runs. The left run shows
@@ -26,7 +31,7 @@ export function ElevationView({
   pad?: number;
 }) {
   const d = model.design;
-  const runLen = side === "front" ? Math.hypot(d.width, d.depthRight - d.depthLeft) : d.depthLeft;
+  const runLen = side === "front" ? d.width : d.depthRight;
   const maxH = Math.max(d.eaveLeft, d.eaveRight) + 0.55;
 
   const t = useMemo(() => {
@@ -48,22 +53,53 @@ export function ElevationView({
 
   // Along-wall coordinate -> world position on this run.
   const toWorld = (u: number) => {
-    if (side === "left") {
-      // measured from the front-left corner back towards the back-left corner
-      return { x: 0, y: d.depthLeft - u };
+    if (side === "right") {
+      // measured from the front-right corner back towards the back-right corner
+      return { x: d.width, y: model.plan.fr.y - u };
     }
     // front: measured from the front-left corner towards the front-right corner
-    const len = Math.hypot(d.width, d.depthRight - d.depthLeft);
-    const frac = u / len;
-    return { x: d.width * frac, y: model.depthAt(d.width * frac) };
+    return { x: u, y: model.plan.fl.y };
   };
 
   const headOf = (u: number) => {
     const p = toWorld(u);
-    return model.eaveAt(p.x) - d.ringDepth / 1000 - 0.25;
+    return model.eaveAt(p.x) - d.ringDepth / 1000;
   };
 
+  /* Same vertical stack as the model: ring -> drop rod -> track -> wheel. */
+  const trackD = Math.max(0.05, d.ringDepth / 1000);
+  const ringUnderOf = (u: number) => headOf(u);
+  const trackTopOf = (u: number) => ringUnderOf(u) - TRACK_DROP;
+  const trackBottomOf = (u: number) => trackTopOf(u) - trackD;
+  const leafTopOf = (u: number) => trackBottomOf(u) - LEAF_GAP;
+
   const leaves = model.doors.filter((dl) => dl.side === side);
+
+  /* Map a point on this run to its along-wall coordinate, 0 at the front-left
+     corner running away from it. */
+  const runOf = (p: { x: number; y: number }) =>
+    side === "right" ? model.plan.fr.y - p.y : p.x;
+
+  // Track extent and drop rods, read back off the model members so the
+  // drawing can never disagree with the cut list.
+  const trackMembers = model.members.filter(
+    (m) => m.kind === "track" && isOnSide(m),
+  );
+  const trackRail = trackMembers.find((m) => m.label === "track C purlin");
+  const trackUs = trackRail
+    ? [runOf(trackRail.a), runOf(trackRail.b)]
+    : [0, runLen];
+  const trackFrom = Math.min(...trackUs);
+  const trackTo = Math.max(...trackUs);
+  const trackRods = trackMembers
+    .filter((m) => m.label === "drop rod")
+    .map((m) => runOf(m.a))
+    .sort((a, b) => a - b);
+
+  function isOnSide(m: { a: { x: number; y: number } }) {
+    if (side === "right") return Math.abs(m.a.x - d.width) < 1e-6;
+    return Math.abs(m.a.y - model.plan.fl.y) < 0.02;
+  }
 
   return (
     <svg
@@ -113,7 +149,7 @@ export function ElevationView({
         .map((b) => {
           const x0 = sx(b.centre - b.width / 2);
           const x1 = sx(b.centre + b.width / 2);
-          const top = headOf(b.centre);
+          const top = leafTopOf(b.centre);
           const doorish = leaves.some(
             (dl) => b.centre > dl.runStart - 0.01 && b.centre < dl.runEnd + 0.01,
           );
@@ -150,14 +186,13 @@ export function ElevationView({
 
       {/* sliding doors on their track */}
       {leaves.map((leaf) => {
-        const slide = d.doorOpen * leaf.width;
-        const dir = side === "left" ? -1 : 1;
-        const u0 = leaf.runStart + slide * dir;
+        const slide = d.doorOpen * leaf.travel;
+        const u0 = leaf.runStart + slide * leaf.slideDir;
         const u1 = u0 + leaf.width;
         const x0 = sx(u0);
         const x1 = sx(u1);
-        const bot = headOf(u0) - leaf.height;
-        const top = headOf(u0);
+        const bot = leafTopOf(u0) - leaf.height;
+        const top = leafTopOf(u0);
         const clipId = `clip-${side}-${leaf.id}`;
         return (
           <g key={leaf.id}>
@@ -217,30 +252,64 @@ export function ElevationView({
       {/* the track itself, drawn once behind the leaves */}
       {leaves.length > 0 && (
         <g>
-          <line
-            x1={sx(0)}
-            y1={sy(headOf(0) + 0.14)}
-            x2={sx(runLen)}
-            y2={sy(headOf(runLen) + 0.14)}
-            stroke="var(--color-brass-400)"
-            strokeWidth={3.4}
-            opacity={0.95}
+          {/* drop rods up to the ring rail */}
+          {trackRods.map((t) => (
+            <line
+              key={`rod-${t.toFixed(3)}`}
+              x1={sx(t)}
+              y1={sy(ringUnderOf(t))}
+              x2={sx(t)}
+              y2={sy(trackTopOf(t))}
+              stroke="var(--color-brass-400)"
+              strokeWidth={1.6}
+              opacity={0.8}
+            />
+          ))}
+          {/* the horizontal track C purlin */}
+          <rect
+            x={sx(trackFrom)}
+            y={sy(trackTopOf(trackFrom))}
+            width={Math.max(0, sx(trackTo) - sx(trackFrom))}
+            height={Math.max(1.5, sy(trackBottomOf(trackFrom)) - sy(trackTopOf(trackFrom)))}
+            fill="#c8903a"
+            fillOpacity={0.85}
+            stroke="var(--color-brass-300)"
+            strokeWidth={1}
           />
+          <text
+            x={sx((trackFrom + trackTo) / 2)}
+            y={sy(trackTopOf(0)) - 5}
+            textAnchor="middle"
+            fill="var(--color-brass-300)"
+            fontSize={8.5}
+            fontFamily="var(--font-mono)"
+            opacity={0.85}
+          >
+            door track C purlin
+          </text>
           {leaves.map((leaf) => {
-            const slide = d.doorOpen * leaf.width;
-            const dir = side === "left" ? -1 : 1;
-            const u0 = leaf.runStart + slide * dir;
-            const top = headOf(u0);
-            return [0.25, 0.75].map((f) => (
-              <circle
-                key={`${leaf.id}-${f}`}
-                cx={sx(u0 + leaf.width * f)}
-                cy={sy(top + 0.09)}
-                r={3.4}
-                fill="#f2d08a"
-                stroke="var(--color-slate-bark-950)"
-                strokeWidth={1}
-              />
+            const u0 = leaf.runStart + d.doorOpen * leaf.travel * leaf.slideDir;
+            return [0.22, 0.78].map((f) => (
+              <g key={`${leaf.id}-${f}`}>
+                {/* hanger strap from the leaf head up to the wheel axle */}
+                <line
+                  x1={sx(u0 + leaf.width * f)}
+                  y1={sy(leafTopOf(u0))}
+                  x2={sx(u0 + leaf.width * f)}
+                  y2={sy(trackTopOf(u0) + WHEEL_DIA / 2)}
+                  stroke="var(--color-brass-300)"
+                  strokeWidth={1.4}
+                  opacity={0.9}
+                />
+                <circle
+                  cx={sx(u0 + leaf.width * f)}
+                  cy={sy(trackTopOf(u0) + WHEEL_DIA / 2)}
+                  r={4.2}
+                  fill="#f2d08a"
+                  stroke="var(--color-slate-bark-950)"
+                  strokeWidth={1.2}
+                />
+              </g>
             ));
           })}
         </g>
@@ -252,11 +321,11 @@ export function ElevationView({
           {/* head rail */}
           <line
             x1={sx(0)}
-            y1={sy(headOf(0) + 0.16)}
+            y1={sy(headOf(0) + d.ringDepth / 2000)}
             x2={sx(runLen)}
-            y2={sy(headOf(runLen) + 0.16)}
+            y2={sy(headOf(runLen) + d.ringDepth / 2000)}
             stroke="var(--color-canopy-400)"
-            strokeWidth={3}
+            strokeWidth={Math.max(2, (d.ringDepth / 1000) * t.scale)}
           />
           {/* sill rail */}
           <line
@@ -271,14 +340,14 @@ export function ElevationView({
           {model.members
             .filter((m) => m.kind === "stud")
             .map((m) => {
-              const u = side === "left" ? d.depthLeft - m.a.y : m.a.x * (runLen / d.width);
+              const u = side === "right" ? model.plan.fr.y - m.a.y : m.a.x;
               return (
                 <line
                   key={m.id}
                   x1={sx(u)}
                   y1={sy(d.sillHeight)}
                   x2={sx(u)}
-                  y2={sy(headOf(u))}
+                  y2={sy(leafTopOf(u))}
                   stroke="var(--color-canopy-300)"
                   strokeOpacity={0.65}
                   strokeWidth={1.6}
@@ -288,12 +357,12 @@ export function ElevationView({
           {/* posts */}
           {model.posts
             .filter((p) =>
-              side === "left"
-                ? Math.abs(p.at.x) < 1e-6
-                : Math.abs(p.at.y - model.depthAt(p.at.x)) < 0.02,
+              side === "right"
+                ? Math.abs(p.at.x - d.width) < 1e-6
+                : Math.abs(p.at.y - model.plan.fl.y) < 0.02,
             )
             .map((p) => {
-              const u = side === "left" ? d.depthLeft - p.at.y : p.at.x * (runLen / d.width);
+              const u = side === "right" ? model.plan.fr.y - p.at.y : p.at.x;
               const w = (d.postSize / 1000) * t.scale;
               return (
                 <rect
@@ -359,7 +428,7 @@ export function ElevationView({
         letterSpacing="0.18em"
         fontFamily="var(--font-mono)"
       >
-        {side === "front" ? "FRONT ELEVATION" : "LEFT ELEVATION"} · looking inside
+        {side === "front" ? "FRONT ELEVATION" : "RIGHT ELEVATION"} · looking inside
       </text>
     </svg>
   );
