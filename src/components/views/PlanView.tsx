@@ -128,8 +128,8 @@ export function PlanView({
           {model.members
             .filter((m) => m.kind === "purlin")
             .map((m) => {
-              const a = S({ x: 0, y: m.a.y });
-              const b = S({ x: d.width, y: m.b.y });
+              const a = S({ x: m.a.x, y: m.a.y });
+              const b = S({ x: m.b.x, y: m.b.y });
               return (
                 <line
                   key={m.id}
@@ -151,7 +151,7 @@ export function PlanView({
               <line
                 key={m.id}
                 x1={sx(m.a.x)}
-                y1={sy(0)}
+                y1={sy(m.a.y)}
                 x2={sx(m.b.x)}
                 y2={sy(m.b.y)}
                 stroke="var(--color-canopy-200)"
@@ -160,9 +160,9 @@ export function PlanView({
                 strokeLinecap="round"
               />
             ))}
-          {/* door tracks + slide direction */}
+          {/* level C-purlin perimeter, with the door-running front/right lengths highlighted */}
           {model.members
-            .filter((m) => m.kind === "track" && m.label === "track C purlin")
+            .filter((m) => m.kind === "level-ring")
             .map((m) => {
               const a = S({ x: m.a.x, y: m.a.y });
               const b = S({ x: m.b.x, y: m.b.y });
@@ -341,7 +341,7 @@ export function PlanView({
           fontFamily="var(--font-mono)"
           className="tnum"
         >
-          {model.posts.length} perimeter posts · max {mmNum(d.baySpacing)} centres
+          {model.posts.length} perimeter posts · max bay {mmNum(model.stats.maximumPostSpacing)}
         </text>
       )}
     </svg>

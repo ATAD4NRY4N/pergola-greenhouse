@@ -1,10 +1,6 @@
 import { useMemo } from "react";
 import type { Model } from "../../lib/model";
-import {
-  LEAF_GAP,
-  TRACK_DROP,
-  WHEEL_DIA,
-} from "../../lib/model";
+import { LEAF_GAP } from "../../lib/model";
 import { DimLine, Leader, polyPoints } from "../../lib/draw";
 import { mmNum } from "../../lib/utils";
 
@@ -66,12 +62,18 @@ export function ElevationView({
     return model.eaveAt(p.x) - d.ringDepth / 1000;
   };
 
-  /* Same vertical stack as the model: ring -> drop rod -> track -> wheel. */
+  /* Door leaves hang from the level perimeter C-purlin, not the roof ring. */
   const trackD = Math.max(0.05, d.ringDepth / 1000);
-  const ringUnderOf = (u: number) => headOf(u);
-  const trackTopOf = (u: number) => ringUnderOf(u) - TRACK_DROP;
-  const trackBottomOf = (u: number) => trackTopOf(u) - trackD;
-  const leafTopOf = (u: number) => trackBottomOf(u) - LEAF_GAP;
+  const supportRail = model.members.find(
+    (member) => member.kind === "level-ring" && member.label?.endsWith(side),
+  );
+  const trackTop = supportRail ? supportRail.a.z + trackD / 2 : 0;
+  const trackBottom = trackTop - trackD;
+  const railElevation = supportRail?.a.z ?? 0;
+  const trackTopOf = (_u: number) => trackTop;
+  const trackBottomOf = (_u: number) => trackBottom;
+  const leafTop = trackBottom - LEAF_GAP;
+  const leafTopOf = (_u: number) => leafTop;
 
   const leaves = model.doors.filter((dl) => dl.side === side);
 
@@ -80,26 +82,9 @@ export function ElevationView({
   const runOf = (p: { x: number; y: number }) =>
     side === "right" ? model.plan.fr.y - p.y : p.x;
 
-  // Track extent and drop rods, read back off the model members so the
-  // drawing can never disagree with the cut list.
-  const trackMembers = model.members.filter(
-    (m) => m.kind === "track" && isOnSide(m),
-  );
-  const trackRail = trackMembers.find((m) => m.label === "track C purlin");
-  const trackUs = trackRail
-    ? [runOf(trackRail.a), runOf(trackRail.b)]
-    : [0, runLen];
-  const trackFrom = Math.min(...trackUs);
-  const trackTo = Math.max(...trackUs);
-  const trackRods = trackMembers
-    .filter((m) => m.label === "drop rod")
-    .map((m) => runOf(m.a))
-    .sort((a, b) => a - b);
-
-  function isOnSide(m: { a: { x: number; y: number } }) {
-    if (side === "right") return Math.abs(m.a.x - d.width) < 1e-6;
-    return Math.abs(m.a.y - model.plan.fl.y) < 0.02;
-  }
+  // Draw the front/right section of the full level perimeter member.
+  const trackFrom = 0;
+  const trackTo = runLen;
 
   return (
     <svg
@@ -250,68 +235,93 @@ export function ElevationView({
       })}
 
       {/* the track itself, drawn once behind the leaves */}
-      {leaves.length > 0 && (
+      {supportRail && (
         <g>
-          {/* drop rods up to the ring rail */}
-          {trackRods.map((t) => (
-            <line
-              key={`rod-${t.toFixed(3)}`}
-              x1={sx(t)}
-              y1={sy(ringUnderOf(t))}
-              x2={sx(t)}
-              y2={sy(trackTopOf(t))}
-              stroke="var(--color-brass-400)"
-              strokeWidth={1.6}
-              opacity={0.8}
-            />
-          ))}
-          {/* the horizontal track C purlin */}
-          <rect
-            x={sx(trackFrom)}
-            y={sy(trackTopOf(trackFrom))}
-            width={Math.max(0, sx(trackTo) - sx(trackFrom))}
-            height={Math.max(1.5, sy(trackBottomOf(trackFrom)) - sy(trackTopOf(trackFrom)))}
-            fill="#c8903a"
-            fillOpacity={0.85}
-            stroke="var(--color-brass-300)"
-            strokeWidth={1}
-          />
+          {/* Simplified open-bottom C-channel section: back web, two legs and
+              inward lower lips. Exact dimensions depend on the selected track. */}
+          {(() => {
+            const x0 = sx(trackFrom);
+            const x1 = sx(trackTo);
+            const top0 = sy(trackTopOf(trackFrom));
+            const top1 = sy(trackTopOf(trackTo));
+            const bottom0 = sy(trackBottomOf(trackFrom));
+            const bottom1 = sy(trackBottomOf(trackTo));
+            const lip = Math.max(3, Math.min(7, (x1 - x0) * 0.004));
+            return (
+              <g fill="none" stroke="var(--color-brass-300)" strokeWidth={2.4} strokeLinejoin="round">
+                <line x1={x0} y1={top0} x2={x1} y2={top1} />
+                <line x1={x0} y1={top0} x2={x0} y2={bottom0} />
+                <line x1={x1} y1={top1} x2={x1} y2={bottom1} />
+                <line x1={x0} y1={bottom0} x2={x0 + lip} y2={bottom0} />
+                <line x1={x1} y1={bottom1} x2={x1 - lip} y2={bottom1} />
+              </g>
+            );
+          })()}
           <text
             x={sx((trackFrom + trackTo) / 2)}
-            y={sy(trackTopOf(0)) - 5}
+            y={sy(trackTopOf((trackFrom + trackTo) / 2)) - 5}
             textAnchor="middle"
             fill="var(--color-brass-300)"
             fontSize={8.5}
             fontFamily="var(--font-mono)"
             opacity={0.85}
           >
-            door track C purlin
+            level perimeter C-purlin · door rail
           </text>
-          {leaves.map((leaf) => {
-            const u0 = leaf.runStart + d.doorOpen * leaf.travel * leaf.slideDir;
-            return [0.22, 0.78].map((f) => (
-              <g key={`${leaf.id}-${f}`}>
-                {/* hanger strap from the leaf head up to the wheel axle */}
-                <line
-                  x1={sx(u0 + leaf.width * f)}
-                  y1={sy(leafTopOf(u0))}
-                  x2={sx(u0 + leaf.width * f)}
-                  y2={sy(trackTopOf(u0) + WHEEL_DIA / 2)}
-                  stroke="var(--color-brass-300)"
-                  strokeWidth={1.4}
-                  opacity={0.9}
-                />
-                <circle
-                  cx={sx(u0 + leaf.width * f)}
-                  cy={sy(trackTopOf(u0) + WHEEL_DIA / 2)}
-                  r={4.2}
-                  fill="#f2d08a"
-                  stroke="var(--color-slate-bark-950)"
-                  strokeWidth={1.2}
-                />
-              </g>
-            ));
-          })}
+          <line
+            x1={sx(trackFrom)}
+            y1={sy(railElevation)}
+            x2={sx(trackTo)}
+            y2={sy(railElevation)}
+            stroke="var(--color-canopy-400)"
+            strokeWidth={Math.max(2, (d.ringDepth / 1000) * t.scale)}
+            opacity={0.9}
+          />
+          {leaves.map((leaf) =>
+            leaf.trolleys.map((trolley) => {
+              const mix = (a: { x: number; y: number; z: number }, b: { x: number; y: number; z: number }) => ({
+                x: a.x + (b.x - a.x) * d.doorOpen,
+                y: a.y + (b.y - a.y) * d.doorOpen,
+                z: a.z + (b.z - a.z) * d.doorOpen,
+              });
+              const wheels = trolley.wheelCentres.map((wheel, index) => {
+                const point = mix(wheel, trolley.parkedWheelCentres[index]);
+                return { u: runOf(point), z: point.z };
+              });
+              const hanger = mix(trolley.hanger.a, trolley.parkedHanger.a);
+              const hangerEnd = mix(trolley.hanger.b, trolley.parkedHanger.b);
+              const axlePairs = [
+                [wheels[0], wheels[1]],
+                [wheels[2], wheels[3]],
+              ];
+              return (
+                <g key={trolley.id}>
+                  {axlePairs.map((pair, index) => pair[0] && pair[1] ? (
+                    <line key={`${trolley.id}-axle-${index}`} x1={sx(pair[0].u)} y1={sy(pair[0].z)} x2={sx(pair[1].u)} y2={sy(pair[1].z)} stroke="#d69e49" strokeWidth={2.6} />
+                  ) : null)}
+                  <line
+                    x1={sx(runOf(hanger))}
+                    y1={sy(hanger.z)}
+                    x2={sx(runOf(hangerEnd))}
+                    y2={sy(hangerEnd.z)}
+                    stroke="var(--color-brass-300)"
+                    strokeWidth={1.5}
+                  />
+                  {wheels.map((wheel, index) => (
+                    <circle
+                      key={`${trolley.id}-wheel-${index}`}
+                      cx={sx(wheel.u)}
+                      cy={sy(wheel.z)}
+                      r={3.2}
+                      fill="#f2d08a"
+                      stroke="var(--color-slate-bark-950)"
+                      strokeWidth={1}
+                    />
+                  ))}
+                </g>
+              );
+            }),
+          )}
         </g>
       )}
 
@@ -415,7 +425,7 @@ export function ElevationView({
           y1={sy(headOf(leaves[0].runStart) - leaves[0].height / 2)}
           x2={sx(leaves[0].runStart + leaves[0].width / 2) + 30}
           y2={sy(0) - 46}
-          label="polycarb door\nhung on 2 track wheels"
+          label="polycarb door\nhung on 2 × 4-wheel channel trolleys"
           color="var(--color-brass-300)"
           fontSize={9}
         />
