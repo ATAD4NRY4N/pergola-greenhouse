@@ -5,11 +5,18 @@ import { MemoryRouter } from "react-router-dom";
 import { Axonometric } from "../components/views/Axonometric";
 import { PlanView } from "../components/views/PlanView";
 import { ElevationView, SectionView } from "../components/views/ElevationView";
+import { DoorDetailView } from "../components/views/DoorDetailView";
 import { ChecksPanel } from "../components/panels";
 import { Landing } from "../pages/Landing";
 import { Designer } from "../components/Designer";
 import { XyzPad, OrbitControls } from "../components/ViewControls";
-import { DEFAULT_DESIGN, buildModel, type Design } from "./model";
+import {
+  DEFAULT_COMPONENT_VISIBILITY,
+  DEFAULT_DESIGN,
+  buildModel,
+  type Design,
+} from "./model";
+import { fitPointsStable } from "./draw";
 
 const variants: [string, Partial<Design>][] = [
   ["default brief", {}],
@@ -26,14 +33,14 @@ const variants: [string, Partial<Design>][] = [
       girderCount: 4,
       frontDoors: 4,
       rightDoors: 3,
-      baySpacing: 3.4,
+      postCount: 18,
     },
   ],
   ["no doors", { frontDoors: 0, rightDoors: 0 }],
   ["low eaves", { eaveLeft: 2.4, eaveRight: 2.7 }],
   [
     "flat roof, low bays",
-    { eaveLeft: 2.5, eaveRight: 2.5, baySpacing: 3.5, roofPurlinSpacing: 1.4 },
+    { eaveLeft: 2.5, eaveRight: 2.5, postCount: 12, roofPurlinSpacing: 1.4 },
   ],
 ];
 
@@ -55,6 +62,7 @@ describe("views render without throwing", () => {
       );
       expect(axon).toContain("<svg");
       expect(axon).toContain("<polygon");
+      expect(axon).toContain("#ed806c");
 
       const plan = renderToStaticMarkup(
         <PlanView model={model} width={640} height={420} showSheets showFrame />,
@@ -94,6 +102,22 @@ describe("views render without throwing", () => {
   }
 });
 
+describe("single sliding-door detail sheet", () => {
+  test("renders the leaf, trolley hanger, SHS junction and U-channel trim details", () => {
+    const model = buildModel({ ...DEFAULT_DESIGN, frontDoors: 1, rightDoors: 0 });
+    const html = renderToStaticMarkup(
+      <DoorDetailView model={model} width={900} height={620} />,
+    );
+    expect(html).toContain('aria-label="Single sliding door and enlarged connection details"');
+    expect(html).toContain("COMPLETE LEAF");
+    expect(html).toContain("HANGER + TRACK");
+    expect(html).toContain("SHS-TO-PURLIN JUNCTION");
+    expect(html).toContain("aluminium U-channel");
+    expect(html).toContain("U-CHANNEL-CAPTURED 4-WHEEL TROLLEY");
+    expect(model.doors).toHaveLength(1);
+  });
+});
+
 describe("full pages render without throwing", () => {
   test("landing page", () => {
     const html = renderToStaticMarkup(
@@ -123,6 +147,20 @@ describe("full pages render without throwing", () => {
 });
 
 describe("3D movement controls", () => {
+  test("axonometric fit keeps the same scale while the camera rotates", () => {
+    const points = [
+      { x: -4, y: -3, z: 0 },
+      { x: 4, y: -3, z: 0 },
+      { x: 4, y: 3, z: 4 },
+      { x: -4, y: 3, z: 4 },
+    ];
+    const initial = fitPointsStable(points, -38, 58, 500, 320, 64);
+    const rotated = fitPointsStable(points, 140, 24, 500, 320, 64);
+    expect(rotated.scale).toBe(initial.scale);
+    const centre = { x: 0, y: 0, z: 2 };
+    expect(rotated.project(centre)).toEqual({ x: 250, y: 160 });
+  });
+
   test("axis pad renders each axis and its offset", () => {
     const html = renderToStaticMarkup(
       <XyzPad
@@ -216,6 +254,57 @@ describe("3D movement controls", () => {
 });
 
 describe("views handle missing sheets and steel", () => {
+  test("component visibility hides its geometry in every drawing", () => {
+    const model = buildModel(DEFAULT_DESIGN);
+    const onlyGlass = {
+      ...DEFAULT_COMPONENT_VISIBILITY,
+      posts: false,
+      "c-purlins": false,
+      "z-purlins": false,
+      braces: false,
+      "wall-framing": false,
+      "aluminium-trim": false,
+      fixings: false,
+    };
+    const axon = renderToStaticMarkup(
+      <Axonometric model={model} showSheets showSteel width={500} height={320} yaw={0} tilt={58} visibility={onlyGlass} />,
+    );
+    expect(axon).not.toContain("#c9d5e2");
+    expect(axon).toContain("#67cbe3");
+    const plan = renderToStaticMarkup(
+      <PlanView model={model} width={500} height={320} showSheets showFrame visibility={{ ...onlyGlass, sheets: false }} />,
+    );
+    expect(plan).not.toContain("#49c2a7");
+    const elevation = renderToStaticMarkup(
+      <ElevationView model={model} side="front" width={500} height={320} showSteel visibility={{ ...onlyGlass, sheets: false }} />,
+    );
+    expect(elevation).not.toContain("#f1c877");
+    expect(elevation).not.toContain("#ed806c");
+
+    const section = renderToStaticMarkup(
+      <SectionView model={model} width={500} height={320} visibility={{ ...onlyGlass, sheets: false }} />,
+    );
+    expect(section).not.toContain("#49c2a7");
+    expect(section).not.toContain("#e4a747");
+    expect(section).not.toContain("#80aee0");
+    expect(section).not.toContain("#ed806c");
+
+    const withFixings = renderToStaticMarkup(
+      <Axonometric model={model} showSheets showSteel width={500} height={320} yaw={0} tilt={58} visibility={DEFAULT_COMPONENT_VISIBILITY} />,
+    );
+    const noFixings = renderToStaticMarkup(
+      <Axonometric model={model} showSheets showSteel width={500} height={320} yaw={0} tilt={58} visibility={{ ...DEFAULT_COMPONENT_VISIBILITY, fixings: false }} />,
+    );
+    expect((noFixings.match(/<circle/g) ?? []).length).toBeLessThan(
+      (withFixings.match(/<circle/g) ?? []).length,
+    );
+
+    const noGlass = renderToStaticMarkup(
+      <Axonometric model={model} showSheets showSteel width={500} height={320} yaw={0} tilt={58} visibility={{ ...DEFAULT_COMPONENT_VISIBILITY, sheets: false }} />,
+    );
+    expect(noGlass).not.toContain('fill="#ed806c"');
+  });
+
   test("toggling overlays off still renders", () => {
     const model = buildModel(DEFAULT_DESIGN);
     const axon = renderToStaticMarkup(

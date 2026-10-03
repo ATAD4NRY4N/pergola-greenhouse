@@ -145,14 +145,24 @@ export function ChecksPanel({ model }: { model: Model }) {
       sub: `${s.steelMetres.toFixed(1)} m of section, ${model.posts.length} posts`,
     },
     {
-      label: "Governing purlin span",
+      label: "Governing Z purlin span",
       value: `${s.governingPurlinSpan.toFixed(2)} m`,
-      sub: `Z${model.design.roofPurlinDepth}×${model.design.roofPurlinGauge}`,
+      sub: `Z${model.design.roofPurlinDepth}×${model.design.roofPurlinGauge} · ${s.purlinScreen.loadKpa.toFixed(2)} kN/m²`,
+    },
+    {
+      label: "Elastic stress screen",
+      value: `${s.purlinScreen.elasticStressMpa.toFixed(0)} MPa`,
+      sub: `${(s.purlinScreen.yieldUtilization * 100).toFixed(0)}% of nominal ${model.design.steelYieldMpa} MPa yield · gross section only`,
+    },
+    {
+      label: "Deflection screen",
+      value: `${s.purlinScreen.deflectionMm.toFixed(0)} mm`,
+      sub: `simple-span estimate · comparison limit L/180 = ${s.purlinScreen.deflectionLimitMm.toFixed(0)} mm`,
     },
     {
       label: "Door track",
       value: `${s.trackLength.toFixed(2)} m`,
-      sub: `${model.design.frontDoors + model.design.rightDoors} leaves × 2 wheels`,
+      sub: `${model.design.frontDoors + model.design.rightDoors} leaves · 2 four-wheel carriages each`,
     },
   ];
 
@@ -172,8 +182,15 @@ export function ChecksPanel({ model }: { model: Model }) {
         ))}
       </div>
 
+      <div className="rounded-md border border-brass-400/30 bg-brass-400/5 px-3 py-2.5">
+        <p className="text-xs font-medium text-brass-200">Screening only—not a structural design</p>
+        <p className="mt-1 text-[11px] leading-relaxed text-slate-bark-400">
+          The Z-purlin estimate uses a simple span and an idealized gross section (50 mm flanges). It does not use manufacturer effective section properties and omits buckling, wind/uplift, load combinations, girders, ring rails, posts, joints, anchors and foundations. Confirm site loads and all member capacities with a qualified structural engineer before building.
+        </p>
+      </div>
+
       <div className="space-y-2">
-        {model.warnings.length === 0 && (
+        {model.warnings.filter((warning) => warning.level !== "info").length === 0 && (
           <div className="flex items-center gap-2 rounded-md border border-canopy-800 bg-canopy-900/40 px-3 py-2.5">
             <Check className="size-4 text-canopy-400" />
             <p className="text-xs text-canopy-200">
@@ -181,7 +198,7 @@ export function ChecksPanel({ model }: { model: Model }) {
             </p>
           </div>
         )}
-        {model.warnings.map((w, i) => (
+        {model.warnings.filter((warning) => warning.level !== "info").map((w, i) => (
           <div
             key={i}
             className={cn(

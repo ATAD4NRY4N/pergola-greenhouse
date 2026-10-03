@@ -1,10 +1,18 @@
 import { useCallback, useMemo, useState, type ReactNode } from "react";
 import { Link } from "react-router-dom";
 
-import { DEFAULT_DESIGN, buildModel, type Design } from "../lib/model";
+import {
+  COMPONENT_CATEGORIES,
+  DEFAULT_COMPONENT_VISIBILITY,
+  DEFAULT_DESIGN,
+  buildModel,
+  type ComponentVisibility,
+  type Design,
+} from "../lib/model";
 import { Axonometric } from "./views/Axonometric";
 import { PlanView } from "./views/PlanView";
 import { ElevationView, SectionView } from "./views/ElevationView";
+import { DoorDetailView } from "./views/DoorDetailView";
 import { ControlPanel } from "./ControlPanel";
 import { OrbitControls, XyzPad } from "./ViewControls";
 import { ChecksPanel, CutListPanel, SourcingPanel } from "./panels";
@@ -26,13 +34,13 @@ import {
   MapPin,
   Eye,
   Grid3x3,
-  CircleDot,
   Leaf,
   X,
   CloudOff,
+  DoorOpen,
 } from "lucide-react";
 
-type ViewKey = "axon" | "plan" | "front" | "right" | "section";
+type ViewKey = "axon" | "plan" | "front" | "right" | "section" | "door";
 type SideKey = "cut" | "checks" | "sourcing";
 
 const VIEWS: { key: ViewKey; label: string; icon: typeof Box }[] = [
@@ -41,6 +49,7 @@ const VIEWS: { key: ViewKey; label: string; icon: typeof Box }[] = [
   { key: "front", label: "Front", icon: Columns3 },
   { key: "right", label: "Right", icon: PanelTop },
   { key: "section", label: "Section", icon: Ruler },
+  { key: "door", label: "Door detail", icon: DoorOpen },
 ];
 
 const SIDES: { key: SideKey; label: string; icon: typeof Boxes }[] = [
@@ -64,9 +73,9 @@ export function DesignerApp({
   }));
   const [view, setView] = useState<ViewKey>("axon");
   const [side, setSide] = useState<SideKey>("cut");
-  const [showSheets, setShowSheets] = useState(true);
-  const [showSteel, setShowSteel] = useState(true);
-  const [showFrame, setShowFrame] = useState(true);
+  const [componentVisibility, setComponentVisibility] = useState<ComponentVisibility>(
+    () => ({ ...DEFAULT_COMPONENT_VISIBILITY }),
+  );
   const [yaw, setYaw] = useState(-38);
   const [tilt, setTilt] = useState(58);
   const [pan, setPan] = useState({ x: 0, y: 0, z: 0 });
@@ -261,26 +270,42 @@ export function DesignerApp({
 
             <span className="mx-1 h-4 w-px bg-slate-bark-800" />
 
-            <ToggleChip
-              on={showSheets}
-              onClick={() => setShowSheets((s) => !s)}
-              icon={<Eye className="size-3.5" />}
-              label="Sheets"
-            />
-            <ToggleChip
-              on={showSteel}
-              onClick={() => setShowSteel((s) => !s)}
-              icon={<Columns3 className="size-3.5" />}
-              label="Steel"
-            />
-            {(view === "plan" || view === "axon") && (
+            {COMPONENT_CATEGORIES.filter((component) => component.id !== "sheets" && component.id !== "aluminium-trim" && component.id !== "fixings").map((component) => (
               <ToggleChip
-                on={showFrame}
-                onClick={() => setShowFrame((s) => !s)}
-                icon={<CircleDot className="size-3.5" />}
-                label="Purlin layout"
+                key={component.id}
+                on={componentVisibility[component.id]}
+                onClick={() =>
+                  setComponentVisibility((current) => ({
+                    ...current,
+                    [component.id]: !current[component.id],
+                  }))
+                }
+                icon={<Eye className="size-3.5" />}
+                label={component.label}
+                color={component.color}
               />
-            )}
+            ))}
+            <ToggleChip
+              on={componentVisibility.sheets}
+              onClick={() => setComponentVisibility((current) => ({ ...current, sheets: !current.sheets }))}
+              icon={<Eye className="size-3.5" />}
+              label="Polycarbonate"
+              color="#67cbe3"
+            />
+            <ToggleChip
+              on={componentVisibility["aluminium-trim"]}
+              onClick={() => setComponentVisibility((current) => ({ ...current, "aluminium-trim": !current["aluminium-trim"] }))}
+              icon={<Eye className="size-3.5" />}
+              label="Aluminium trim"
+              color="#f1c877"
+            />
+            <ToggleChip
+              on={componentVisibility.fixings}
+              onClick={() => setComponentVisibility((current) => ({ ...current, fixings: !current.fixings }))}
+              icon={<Eye className="size-3.5" />}
+              label="Fixings"
+              color="#ed806c"
+            />
 
             {view === "axon" && (
               <div className="ml-auto flex flex-wrap items-center gap-2">
@@ -308,8 +333,9 @@ export function DesignerApp({
             {view === "axon" && (
               <Axonometric
                 model={model}
-                showSheets={showSheets}
-                showSteel={showSteel}
+                showSheets
+                showSteel
+                visibility={componentVisibility}
                 width={w}
                 height={h}
                 yaw={yaw}
@@ -325,8 +351,9 @@ export function DesignerApp({
                 model={model}
                 width={w}
                 height={h}
-                showSheets={showSheets}
-                showFrame={showFrame}
+                showSheets
+                showFrame
+                visibility={componentVisibility}
               />
             )}
             {view === "front" && (
@@ -335,7 +362,8 @@ export function DesignerApp({
                 side="front"
                 width={w}
                 height={h}
-                showSteel={showSteel}
+                showSteel
+                visibility={componentVisibility}
               />
             )}
             {view === "right" && (
@@ -344,10 +372,16 @@ export function DesignerApp({
                 side="right"
                 width={w}
                 height={h}
-                showSteel={showSteel}
+                showSteel
+                visibility={componentVisibility}
               />
             )}
-            {view === "section" && <SectionView model={model} width={w} height={h} />}
+            {view === "section" && (
+              <SectionView model={model} width={w} height={h} visibility={componentVisibility} />
+            )}
+            {view === "door" && (
+              <DoorDetailView model={model} width={w} height={h} />
+            )}
 
             {view === "axon" && (
               <p className="pointer-events-none absolute right-3 top-3 rounded-md border border-slate-bark-800 bg-slate-bark-950/80 px-2.5 py-1.5 text-right font-mono text-[10px] leading-relaxed text-slate-bark-500 backdrop-blur">
@@ -360,22 +394,13 @@ export function DesignerApp({
             )}
 
             <div className="pointer-events-none absolute bottom-3 left-3 flex flex-wrap gap-x-4 gap-y-1 rounded-md border border-slate-bark-800 bg-slate-bark-950/80 px-3 py-2 backdrop-blur">
-              {[
-                ["#8fd9ab", "C purlin ring"],
-                ["#7ecfb0", "Z purlin / girder"],
-                ["#cfe3d8", "SHS post"],
-                ["#e0b05c", "door + track"],
-                ["#8ad7e3", "polycarbonate"],
-              ].map(([c, t]) => (
+              {COMPONENT_CATEGORIES.filter((component) => componentVisibility[component.id]).map((component) => (
                 <span
-                  key={t}
+                  key={component.id}
                   className="flex items-center gap-1.5 font-mono text-[10px] text-slate-bark-400"
                 >
-                  <span
-                    className="inline-block h-0.5 w-4 rounded"
-                    style={{ background: c }}
-                  />
-                  {t}
+                  <span className="inline-block h-0.5 w-4 rounded" style={{ background: component.color }} />
+                  {component.label}
                 </span>
               ))}
             </div>
@@ -445,21 +470,26 @@ function ToggleChip({
   onClick,
   icon,
   label,
+  color,
 }: {
   on: boolean;
   onClick: () => void;
   icon: ReactNode;
   label: string;
+  color?: string;
 }) {
   return (
     <button
       onClick={onClick}
+      aria-pressed={on}
+      style={color ? { color: on ? color : undefined } : undefined}
       className={cn(
         "flex items-center gap-1.5 rounded-md px-2.5 py-1.5 font-mono text-[11px] transition-colors",
         on
           ? "bg-slate-bark-800 text-canopy-200"
           : "text-slate-bark-500 hover:text-slate-bark-300",
       )}
+      title={`${on ? "Hide" : "Show"} ${label.toLowerCase()}`}
     >
       {icon}
       {label}

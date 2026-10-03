@@ -102,5 +102,11 @@ export function useLocalStore(): DesignStore {
 }
 
 export function coerceDesign(raw: unknown): Design {
-  return { ...DEFAULT_DESIGN, ...(raw as Partial<Design>) };
+  const saved = raw && typeof raw === "object" ? (raw as Partial<Design>) : {};
+  return {
+    ...DEFAULT_DESIGN,
+    ...saved,
+    doorTrimDepth: saved.doorTrimDepth ?? DEFAULT_DESIGN.doorTrimDepth,
+    doorTrimGauge: saved.doorTrimGauge ?? DEFAULT_DESIGN.doorTrimGauge,
+  };
 }

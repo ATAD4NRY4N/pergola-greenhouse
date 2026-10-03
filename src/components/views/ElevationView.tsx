@@ -1,9 +1,7 @@
 import { useMemo } from "react";
-import type { Model } from "../../lib/model";
-import {
-  LEAF_GAP,
-  TRACK_WIDTH,
-} from "../../lib/model";
+import { componentVisible } from "../../lib/model";
+import type { ComponentVisibility, Model } from "../../lib/model";
+import { LEAF_GAP } from "../../lib/model";
 import { DimLine, Leader, polyPoints } from "../../lib/draw";
 import { mmNum } from "../../lib/utils";
 
@@ -20,6 +18,7 @@ export function ElevationView({
   width,
   height,
   showSteel,
+  visibility,
   pad = 64,
 }: {
   model: Model;
@@ -27,6 +26,7 @@ export function ElevationView({
   width: number;
   height: number;
   showSteel: boolean;
+  visibility?: Partial<ComponentVisibility>;
   pad?: number;
 }) {
   const d = model.design;
@@ -65,7 +65,7 @@ export function ElevationView({
     return model.eaveAt(p.x) - d.ringDepth / 1000;
   };
 
-  /* Doors hang directly from the level perimeter C-purlin, not the roof ring. */
+  /* Door leaves hang from the level perimeter C-purlin, not the roof ring. */
   const trackD = Math.max(0.05, d.ringDepth / 1000);
   const supportRail = model.members.find(
     (member) => member.kind === "level-ring" && member.label?.endsWith(side),
@@ -85,7 +85,7 @@ export function ElevationView({
   const runOf = (p: { x: number; y: number }) =>
     side === "right" ? model.plan.fr.y - p.y : p.x;
 
-  // Door running length follows the full front/right segment of the perimeter rail.
+  // Draw the front/right section of the full level perimeter member.
   const trackFrom = 0;
   const trackTo = runLen;
 
@@ -132,7 +132,7 @@ export function ElevationView({
       />
 
       {/* glazed bays */}
-      {model.wallBays
+      {componentVisible(visibility, "sheets") && model.wallBays
         .filter((b) => b.side === side)
         .map((b) => {
           const x0 = sx(b.centre - b.width / 2);
@@ -150,7 +150,7 @@ export function ElevationView({
                 width={x1 - x0}
                 height={sy(d.sillHeight) - sy(top)}
                 fill={b.type === "glazed" ? `url(#${side}-glaze)` : "none"}
-                stroke={b.type === "glazed" ? "#8ad7e3" : "var(--color-slate-bark-500)"}
+                stroke={b.type === "glazed" ? "#67cbe3" : "var(--color-slate-bark-500)"}
                 strokeOpacity={b.type === "glazed" ? 0.5 : 0.35}
                 strokeWidth={1}
               />
@@ -173,7 +173,7 @@ export function ElevationView({
         })}
 
       {/* sliding doors on their track */}
-      {leaves.map((leaf) => {
+      {componentVisible(visibility, "sheets") && leaves.map((leaf) => {
         const slide = d.doorOpen * leaf.travel;
         const u0 = leaf.runStart + slide * leaf.slideDir;
         const u1 = u0 + leaf.width;
@@ -194,9 +194,9 @@ export function ElevationView({
               y={sy(top)}
               width={x1 - x0}
               height={sy(bot) - sy(top)}
-              fill="#e0b05c"
-              fillOpacity={0.16}
-              stroke="#e0b05c"
+              fill="#67cbe3"
+              fillOpacity={0.2}
+              stroke="#67cbe3"
               strokeWidth={1.4}
             />
             {/* polycarb ribs */}
@@ -208,7 +208,7 @@ export function ElevationView({
                   y1={sy(top)}
                   x2={x0 + ((x1 - x0) * i) / 8}
                   y2={sy(bot)}
-                  stroke="#f2d08a"
+                  stroke="#d9f5fb"
                   strokeWidth={0.7}
                 />
               ))}
@@ -218,7 +218,7 @@ export function ElevationView({
               y={(sy(top) + sy(bot)) / 2}
               textAnchor="middle"
               dominantBaseline="middle"
-              fill="#f2d08a"
+              fill="#d9f5fb"
               fontSize={9}
               fontFamily="var(--font-mono)"
               opacity={0.9}
@@ -229,7 +229,7 @@ export function ElevationView({
             <path
               d={`M ${sx(u1) + 5} ${sy(bot) - 10} l 11 0 m -4.5 -4 l 4.5 4 l -4.5 4`}
               fill="none"
-              stroke="#f2d08a"
+              stroke="#f1c877"
               strokeWidth={1.2}
               opacity={0.8}
             />
@@ -238,9 +238,10 @@ export function ElevationView({
       })}
 
       {/* the track itself, drawn once behind the leaves */}
-      {supportRail && (
+      {showSteel && supportRail && componentVisible(visibility, "c-purlins") && (
         <g>
-          {/* Open-bottom C profile, with inward lips capturing the trolley wheels. */}
+          {/* Simplified open-bottom C-channel section: back web, two legs and
+              inward lower lips. Exact dimensions depend on the selected track. */}
           {(() => {
             const x0 = sx(trackFrom);
             const x1 = sx(trackTo);
@@ -248,14 +249,14 @@ export function ElevationView({
             const top1 = sy(trackTopOf(trackTo));
             const bottom0 = sy(trackBottomOf(trackFrom));
             const bottom1 = sy(trackBottomOf(trackTo));
-            const lipPx = Math.max(2, TRACK_WIDTH * t.scale * 0.2);
+            const lip = Math.max(3, Math.min(7, (x1 - x0) * 0.004));
             return (
-              <g fill="none" stroke="var(--color-brass-300)" strokeWidth={2.4} strokeLinejoin="round">
+              <g fill="none" stroke="#49c2a7" strokeWidth={2.8} strokeLinejoin="round">
                 <line x1={x0} y1={top0} x2={x1} y2={top1} />
                 <line x1={x0} y1={top0} x2={x0} y2={bottom0} />
                 <line x1={x1} y1={top1} x2={x1} y2={bottom1} />
-                <line x1={x0} y1={bottom0} x2={x0 + lipPx} y2={bottom0} />
-                <line x1={x1} y1={bottom1} x2={x1 - lipPx} y2={bottom1} />
+                <line x1={x0} y1={bottom0} x2={x0 + lip} y2={bottom0} />
+                <line x1={x1} y1={bottom1} x2={x1 - lip} y2={bottom1} />
               </g>
             );
           })()}
@@ -263,7 +264,7 @@ export function ElevationView({
             x={sx((trackFrom + trackTo) / 2)}
             y={sy(trackTopOf((trackFrom + trackTo) / 2)) - 5}
             textAnchor="middle"
-            fill="var(--color-brass-300)"
+            fill="#49c2a7"
             fontSize={8.5}
             fontFamily="var(--font-mono)"
             opacity={0.85}
@@ -279,7 +280,7 @@ export function ElevationView({
             strokeWidth={Math.max(2, (d.ringDepth / 1000) * t.scale)}
             opacity={0.9}
           />
-          {leaves.map((leaf) =>
+          {componentVisible(visibility, "fixings") && componentVisible(visibility, "sheets") && leaves.map((leaf) =>
             leaf.trolleys.map((trolley) => {
               const mix = (a: { x: number; y: number; z: number }, b: { x: number; y: number; z: number }) => ({
                 x: a.x + (b.x - a.x) * d.doorOpen,
@@ -292,7 +293,10 @@ export function ElevationView({
               });
               const hanger = mix(trolley.hanger.a, trolley.parkedHanger.a);
               const hangerEnd = mix(trolley.hanger.b, trolley.parkedHanger.b);
-              const axlePairs = [[wheels[0], wheels[1]], [wheels[2], wheels[3]]];
+              const axlePairs = [
+                [wheels[0], wheels[1]],
+                [wheels[2], wheels[3]],
+              ];
               return (
                 <g key={trolley.id}>
                   {axlePairs.map((pair, index) => pair[0] && pair[1] ? (
@@ -303,7 +307,7 @@ export function ElevationView({
                     y1={sy(hanger.z)}
                     x2={sx(runOf(hangerEnd))}
                     y2={sy(hangerEnd.z)}
-                    stroke="var(--color-brass-300)"
+                    stroke="#ed806c"
                     strokeWidth={1.5}
                   />
                   {wheels.map((wheel, index) => (
@@ -312,8 +316,8 @@ export function ElevationView({
                       cx={sx(wheel.u)}
                       cy={sy(wheel.z)}
                       r={3.2}
-                      fill="#f2d08a"
-                      stroke="var(--color-slate-bark-950)"
+                    fill="#dce4e8"
+                    stroke="var(--color-slate-bark-950)"
                       strokeWidth={1}
                     />
                   ))}
@@ -328,25 +332,25 @@ export function ElevationView({
       {showSteel && (
         <>
           {/* head rail */}
-          <line
+          {componentVisible(visibility, "c-purlins") && <line
             x1={sx(0)}
             y1={sy(headOf(0) + d.ringDepth / 2000)}
             x2={sx(runLen)}
             y2={sy(headOf(runLen) + d.ringDepth / 2000)}
-            stroke="var(--color-canopy-400)"
+            stroke="#49c2a7"
             strokeWidth={Math.max(2, (d.ringDepth / 1000) * t.scale)}
-          />
+          />}
           {/* sill rail */}
-          <line
+          {componentVisible(visibility, "wall-framing") && <line
             x1={sx(0)}
             y1={sy(d.sillHeight)}
             x2={sx(runLen)}
             y2={sy(d.sillHeight)}
-            stroke="var(--color-canopy-400)"
+            stroke="#99bd70"
             strokeWidth={2.6}
-          />
+          />}
           {/* studs */}
-          {model.members
+          {componentVisible(visibility, "wall-framing") && model.members
             .filter((m) => m.kind === "stud")
             .map((m) => {
               const u = side === "right" ? model.plan.fr.y - m.a.y : m.a.x;
@@ -357,14 +361,14 @@ export function ElevationView({
                   y1={sy(d.sillHeight)}
                   x2={sx(u)}
                   y2={sy(leafTopOf(u))}
-                  stroke="var(--color-canopy-300)"
-                  strokeOpacity={0.65}
+                  stroke="#99bd70"
+                  strokeOpacity={0.85}
                   strokeWidth={1.6}
                 />
               );
             })}
           {/* posts */}
-          {model.posts
+          {componentVisible(visibility, "posts") && model.posts
             .filter((p) =>
               side === "right"
                 ? Math.abs(p.at.x - d.width) < 1e-6
@@ -380,13 +384,72 @@ export function ElevationView({
                   y={sy(model.eaveAt(p.at.x))}
                   width={w}
                   height={sy(0) - sy(model.eaveAt(p.at.x))}
-                  fill="#1c2b26"
-                  stroke="#cfe3d8"
+                  fill="#8494a5"
+                  stroke="#dce5ef"
                   strokeWidth={1.6}
                 />
               );
             })}
+          {componentVisible(visibility, "braces") && model.members
+            .filter((member) => member.kind === "brace")
+            .filter((member) => side === "front"
+              ? Math.abs(member.a.y - model.plan.fl.y) < 0.02
+              : Math.abs(member.a.x - d.width) < 0.02)
+            .map((member) => {
+              const u0 = runOf(member.a);
+              const u1 = runOf(member.b);
+              return (
+                <polygon
+                  key={member.id}
+                  points={polyPoints([
+                    { x: sx(u0), y: sy(member.a.z) },
+                    { x: sx(u1), y: sy(member.b.z) },
+                    { x: sx(u1), y: sy(member.b.z) + Math.max(2, (d.kneeBraceSize / 1000) * t.scale * 0.55) },
+                    { x: sx(u0), y: sy(member.a.z) + Math.max(2, (d.kneeBraceSize / 1000) * t.scale * 0.55) },
+                  ])}
+                  fill="#80aee0"
+                  fillOpacity={0.8}
+                  stroke="#c4dcf7"
+                  strokeWidth={0.8}
+                />
+              );
+            })}
+          {componentVisible(visibility, "fixings") && componentVisible(visibility, "c-purlins") && model.fixings
+            .filter((fixing) => fixing.kind !== "tek-screw")
+            .filter((fixing) => side === "front"
+              ? Math.abs(fixing.at.y - model.plan.fl.y) < 0.02
+              : Math.abs(fixing.at.x - d.width) < 0.02)
+            .map((fixing) => {
+              const u = runOf(fixing.at);
+              const y = fixing.at.z < 0.05 ? sy(0) - 2 : sy(fixing.at.z);
+              return <circle key={fixing.id} cx={sx(u)} cy={y} r={2.4} fill="#ed806c" stroke="#fff0e9" strokeWidth={0.7} />;
+            })}
         </>
+      )}
+
+      {/* aluminium door casing, separate from the translucent sheet */}
+      {showSteel && componentVisible(visibility, "aluminium-trim") && componentVisible(visibility, "sheets") && leaves.map((leaf) => {
+        const slide = d.doorOpen * leaf.travel;
+        const u0 = leaf.runStart + slide * leaf.slideDir;
+        const u1 = u0 + leaf.width;
+        const uMid = (u0 + u1) / 2;
+        const top = leafTopOf(u0);
+        const bottom = top - leaf.height;
+        const trim = Math.max(2, (d.aluminiumTrimSize / 1000) * t.scale);
+        return (
+          <g key={`trim-${leaf.id}`} fill="none" stroke="#f1c877" strokeWidth={trim}>
+            <rect x={sx(u0)} y={sy(top)} width={sx(u1) - sx(u0)} height={sy(bottom) - sy(top)} />
+            <line x1={sx(uMid)} y1={sy(top)} x2={sx(uMid)} y2={sy(bottom)} stroke="#ffe4a9" strokeWidth={Math.max(1, trim * 0.55)} />
+          </g>
+        );
+      })}
+
+      {/* roof-edge aluminium flashing */}
+      {showSteel && componentVisible(visibility, "aluminium-trim") && (
+        <g fill="none" stroke="#f1c877" strokeWidth={2} strokeDasharray="8 2">
+          <line x1={sx(0)} y1={sy(model.eaveAt(toWorld(0).x) - 0.025)} x2={sx(runLen)} y2={sy(model.eaveAt(toWorld(runLen).x) - 0.025)} />
+          <line x1={sx(0)} y1={sy(headOf(0) - 0.018)} x2={sx(runLen)} y2={sy(headOf(runLen) - 0.018)} />
+        </g>
       )}
 
       {/* dimensions */}
@@ -448,11 +511,13 @@ export function SectionView({
   model,
   width,
   height,
+  visibility,
   pad = 64,
 }: {
   model: Model;
   width: number;
   height: number;
+  visibility?: Partial<ComponentVisibility>;
   pad?: number;
 }) {
   const d = model.design;
@@ -492,7 +557,7 @@ export function SectionView({
       />
 
       {/* posts */}
-      {[0, d.width].map((x) => (
+      {componentVisible(visibility, "posts") && [0, d.width].map((x) => (
         <rect
           key={x}
           x={sx(x) - (d.postSize / 1000) * scale * 0.5}
@@ -505,31 +570,90 @@ export function SectionView({
         />
       ))}
 
-      {/* roof purlins in section */}
-      {model.members
-        .filter((m) => m.kind === "purlin")
-        .map((m, i) => {
-          if (i % 3 !== 0) return null;
+      {/* roof Z purlins in the width section */}
+      {componentVisible(visibility, "z-purlins") && model.members
+        .filter((member) => member.kind === "purlin")
+        .sort((a, b) => Math.abs(a.a.y - (D + model.backAt(d.width / 2)) / 2) - Math.abs(b.a.y - (D + model.backAt(d.width / 2)) / 2))
+        .slice(0, 1)
+        .map((member) => {
           const depth = d.roofPurlinDepth / 1000;
+          const topA = member.a.z + depth / 2;
+          const topB = member.b.z + depth / 2;
           return (
             <polygon
-              key={m.id}
+              key={member.id}
               points={polyPoints([
-                { x: sx(m.a.x), y: sy(m.a.z) },
-                { x: sx(m.b.x), y: sy(m.b.z) },
-                { x: sx(m.b.x), y: sy(m.b.z - depth) },
-                { x: sx(m.a.x), y: sy(m.a.z - depth) },
+                { x: sx(member.a.x), y: sy(topA) },
+                { x: sx(member.b.x), y: sy(topB) },
+                { x: sx(member.b.x), y: sy(topB - depth) },
+                { x: sx(member.a.x), y: sy(topA - depth) },
               ])}
-              fill="var(--color-canopy-800)"
-              stroke="var(--color-canopy-300)"
-              strokeOpacity={0.75}
-              strokeWidth={1.2}
+              fill="#a96d20"
+              fillOpacity={0.82}
+              stroke="#e4a747"
+              strokeOpacity={0.8}
+              strokeWidth={1.1}
+            />
+          );
+        })}
+
+      {/* C-purlin eave sections at each end of the cross-section. */}
+      {componentVisible(visibility, "c-purlins") && [0, d.width].map((x) => {
+        const halfWidth = 0.04;
+        const depth = d.ringDepth / 1000;
+        const thickness = Math.max(0.003, d.ringGauge / 1000);
+        const top = model.eaveAt(x);
+        return (
+          <polygon
+            key={`ring-section-${x}`}
+            points={polyPoints([
+              { x: sx(x - halfWidth), y: sy(top) },
+              { x: sx(x + halfWidth), y: sy(top) },
+              { x: sx(x + halfWidth), y: sy(top - depth) },
+              { x: sx(x + halfWidth - thickness), y: sy(top - depth) },
+              { x: sx(x + halfWidth - thickness), y: sy(top - thickness) },
+              { x: sx(x - halfWidth), y: sy(top - thickness) },
+            ])}
+            fill="#247c6d"
+            stroke="#49c2a7"
+            strokeWidth={1.1}
+          />
+        );
+      })}
+
+      {/* Wall framing and front/back knee braces visible in section. */}
+      {componentVisible(visibility, "wall-framing") && (
+        <>
+          {model.members.filter((member) => member.kind === "sill").map((member) => (
+            <line key={member.id} x1={sx(member.a.x)} y1={sy(d.sillHeight)} x2={sx(member.b.x)} y2={sy(d.sillHeight)} stroke="#99bd70" strokeWidth={2.5} />
+          ))}
+          {model.members.filter((member) => member.kind === "stud" && Math.abs(member.a.y - model.plan.fl.y) < 0.02).map((member) => (
+            <rect key={member.id} x={sx(member.a.x) - 1.5} y={sy(member.b.z)} width={3} height={sy(member.a.z) - sy(member.b.z)} fill="#99bd70" fillOpacity={0.75} />
+          ))}
+        </>
+      )}
+      {componentVisible(visibility, "braces") && model.members
+        .filter((member) => member.kind === "brace" && Math.abs(member.a.y - member.b.y) < 0.02)
+        .map((member) => {
+          const halfWidth = Math.max(1.5, (d.kneeBraceGauge / 1000) * scale);
+          return (
+            <polygon
+              key={member.id}
+              points={polyPoints([
+                { x: sx(member.a.x), y: sy(member.a.z) },
+                { x: sx(member.b.x), y: sy(member.b.z) },
+                { x: sx(member.b.x) + halfWidth, y: sy(member.b.z) },
+                { x: sx(member.a.x) + halfWidth, y: sy(member.a.z) },
+              ])}
+              fill="#80aee0"
+              stroke="#c4dcf7"
+              strokeWidth={0.7}
             />
           );
         })}
 
       {/* roof plane */}
-      <polygon
+      {componentVisible(visibility, "sheets") && <polygon
         points={polyPoints([
           { x: sx(-d.roofOverhang), y: sy(model.eaveAt(0)) },
           { x: sx(d.width + d.roofOverhang), y: sy(model.eaveAt(d.width)) },
@@ -540,7 +664,16 @@ export function SectionView({
         fillOpacity={0.2}
         stroke="#8ad7e3"
         strokeWidth={1.4}
-      />
+      />}
+
+      {/* roof-edge flashing and fixings */}
+      {componentVisible(visibility, "aluminium-trim") && (
+        <path d={`M ${sx(-d.roofOverhang)} ${sy(model.eaveAt(0) + 0.025)} L ${sx(d.width + d.roofOverhang)} ${sy(model.eaveAt(d.width) + 0.025)}`} stroke="#f1c877" strokeWidth={2} strokeDasharray="8 2" />
+      )}
+      {componentVisible(visibility, "fixings") && componentVisible(visibility, "sheets") && [0.2, 0.4, 0.6, 0.8].map((fraction) => {
+        const x = d.width * fraction;
+        return <circle key={fraction} cx={sx(x)} cy={sy(model.eaveAt(x) + 0.012)} r={2.2} fill="#ed806c" stroke="#fff0e9" strokeWidth={0.7} />;
+      })}
 
       {/* fall indicator */}
       <line

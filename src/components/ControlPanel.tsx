@@ -73,7 +73,7 @@ function Dim({
   min: number;
   max: number;
   step: number;
-  unit?: "m" | "mm";
+  unit?: "m" | "mm" | "no." | "kN/m²" | "MPa";
   hint?: string;
   onChange: (v: number) => void;
 }) {
@@ -102,7 +102,12 @@ function Dim({
   };
 
   const decimals = step < 1 ? String(step).split(".")[1]?.length ?? 2 : 0;
-  const display = unit === "m" ? value.toFixed(decimals) : String(Math.round(value));
+  const display =
+    unit === "m"
+      ? value.toFixed(decimals)
+      : unit === "no."
+        ? String(Math.round(value))
+        : value.toFixed(decimals);
 
   return (
     <div>
@@ -141,7 +146,7 @@ function Dim({
             }}
             className="h-8 w-[4.5rem] px-2 text-right font-mono text-xs tnum"
           />
-          <span className="w-4 font-mono text-[10px] text-slate-bark-500">
+          <span className="min-w-8 whitespace-nowrap px-1 font-mono text-[10px] text-slate-bark-500">
             {unit}
           </span>
         </div>
@@ -419,13 +424,23 @@ export function ControlPanel({
           onChange={(v) => set("postSize", v)}
         />
         <Dim
-          label="Max post centres"
-          value={design.baySpacing}
-          min={1.2}
-          max={3.5}
-          step={0.05}
-          onChange={(v) => set("baySpacing", v)}
-          hint="Posts stay on the perimeter and corners only — never inside."
+          label="Perimeter posts (incl. corners)"
+          value={design.postCount}
+          min={4}
+          max={60}
+          step={1}
+          unit="no."
+          onChange={(v) => set("postCount", Math.round(v))}
+          hint="Evenly spread around the perimeter; the four corners are always included."
+        />
+        <Dim
+          label="SHS wall thickness"
+          value={design.postGauge}
+          min={2}
+          max={6}
+          step={0.5}
+          unit="mm"
+          onChange={(v) => set("postGauge", v)}
         />
         <Seg
           label="C purlin ring"
@@ -437,6 +452,15 @@ export function ControlPanel({
             { value: 150, label: "C150" },
           ]}
           onChange={(v) => set("ringDepth", v)}
+        />
+        <Dim
+          label="C purlin wall thickness"
+          value={design.ringGauge}
+          min={1}
+          max={4}
+          step={0.1}
+          unit="mm"
+          onChange={(v) => set("ringGauge", v)}
         />
         <Seg
           label="Front & back ring build"
@@ -452,7 +476,7 @@ export function ControlPanel({
       <Section
         title="Roof Z frame"
         icon={<Boxes className="size-3.5" />}
-        defaultOpen={false}
+        defaultOpen={true}
       >
         <Seg
           label="Z purlin section"
@@ -465,6 +489,15 @@ export function ControlPanel({
             { value: 250, label: "Z250" },
           ]}
           onChange={(v) => set("roofPurlinDepth", v)}
+        />
+        <Dim
+          label="Z purlin wall thickness"
+          value={design.roofPurlinGauge}
+          min={1}
+          max={4}
+          step={0.1}
+          unit="mm"
+          onChange={(v) => set("roofPurlinGauge", v)}
         />
         <Dim
           label="Purlin centres"
@@ -487,15 +520,35 @@ export function ControlPanel({
           ]}
           onChange={(v) => set("girderCount", v)}
         />
+        <Dim
+          label="Downward roof load"
+          value={design.roofLoadKpa}
+          min={0.1}
+          max={5}
+          step={0.05}
+          unit="kN/m²"
+          onChange={(v) => set("roofLoadKpa", v)}
+          hint="Screening pressure in kN/m²; get site-specific snow/dead load from an engineer."
+        />
+        <Dim
+          label="Steel yield strength"
+          value={design.steelYieldMpa}
+          min={200}
+          max={550}
+          step={10}
+          unit="MPa"
+          onChange={(v) => set("steelYieldMpa", v)}
+          hint="MPa from the actual steel certificate; not a substitute for section capacity."
+        />
         <p className="font-mono text-[10px] leading-relaxed text-slate-bark-500">
-          Girders land on the front and back ring rails, so the roof purlins only
-          span between them. Add more girders to shorten the purlin span without
-          putting a post inside the structure.
+          Girders land on the front and skew rear ring rails. Roof checks use a
+          simple elastic beam screen only; they do not include wind uplift,
+          buckling, connections or manufacturer section properties.
         </p>
       </Section>
 
       <Section
-        title="Polycarbonate"
+        title="Polycarbonate & fixings"
         icon={<Layers className="size-3.5" />}
       >
         <Seg
@@ -522,21 +575,88 @@ export function ControlPanel({
           All sheets are 2438 × 1219 mm (8 × 4 ft). Roof, walls and doors all come
           off the same sheet size, so offcuts can be shared.
         </p>
+        <Dim
+          label="Sheet fixing spacing"
+          value={design.fixingSpacing}
+          min={0.2}
+          max={1.2}
+          step={0.05}
+          onChange={(v) => set("fixingSpacing", v)}
+          hint="Illustrative roof fixing centres; follow the sheet manufacturer's schedule."
+        />
+        <Dim
+          label="Tek screw / bolt head size"
+          value={design.fixingDiameter}
+          min={4}
+          max={12}
+          step={1}
+          unit="mm"
+          onChange={(v) => set("fixingDiameter", v)}
+        />
+        <Dim
+          label="Door U-channel face width"
+          value={design.aluminiumTrimSize}
+          min={15}
+          max={50}
+          step={1}
+          unit="mm"
+          onChange={(v) => set("aluminiumTrimSize", v)}
+        />
+        <Dim
+          label="Door U-channel return depth"
+          value={design.doorTrimDepth}
+          min={10}
+          max={35}
+          step={1}
+          unit="mm"
+          onChange={(v) => set("doorTrimDepth", v)}
+        />
+        <Dim
+          label="Door U-channel wall thickness"
+          value={design.doorTrimGauge}
+          min={1}
+          max={4}
+          step={0.1}
+          unit="mm"
+          onChange={(v) => set("doorTrimGauge", v)}
+        />
         <Toggle
           label="Knee braces at every post"
           checked={design.kneeBraces}
           onChange={(v) => set("kneeBraces", v)}
         />
         {design.kneeBraces && (
-          <Dim
-            label="Brace projection"
-            value={design.kneeBraceLength}
-            min={0.3}
-            max={1.6}
-            step={0.05}
-            onChange={(v) => set("kneeBraceLength", v)}
-            hint="Halves the front and back ring span without an internal post."
-          />
+          <>
+            <Dim
+              label="Brace projection"
+              value={design.kneeBraceLength}
+              min={0.3}
+              max={1.6}
+              step={0.05}
+              onChange={(v) => set("kneeBraceLength", v)}
+              hint="Halves the front and back ring span without an internal post."
+            />
+            <Seg
+              label="Knee brace section"
+              value={design.kneeBraceSize}
+              options={[
+                { value: 50, label: "C50" },
+                { value: 60, label: "C60" },
+                { value: 75, label: "C75" },
+                { value: 100, label: "C100" },
+              ]}
+              onChange={(v) => set("kneeBraceSize", v)}
+            />
+            <Dim
+              label="Knee brace wall thickness"
+              value={design.kneeBraceGauge}
+              min={1}
+              max={4}
+              step={0.1}
+              unit="mm"
+              onChange={(v) => set("kneeBraceGauge", v)}
+            />
+          </>
         )}
         <Toggle
           label="Glaze the front run"
@@ -556,9 +676,9 @@ export function ControlPanel({
             Leaf is fixed
           </p>
           <p className="mt-1 text-[11px] leading-relaxed text-slate-bark-300">
-            One whole 2438 &times; 1219 mm sheet per leaf, stood on its side and
-            hung off the track C purlin on two wheels, barn-door style. Never
-            cut, never two sheets.
+            One full 8 × 4 ft sheet per leaf, hung on two four-wheel bearing
+            trolleys inside the C-channel and edged with aluminium U-channel.
+            Confirm channel opening and trolley fit with the hardware supplier.
           </p>
         </div>
         <Dim
@@ -567,7 +687,7 @@ export function ControlPanel({
           min={0}
           max={5}
           step={1}
-          unit="mm"
+          unit="no."
           onChange={(v) => set("frontDoors", Math.round(v))}
         />
         <Dim
@@ -585,7 +705,7 @@ export function ControlPanel({
           min={0}
           max={5}
           step={1}
-          unit="mm"
+          unit="no."
           onChange={(v) => set("rightDoors", Math.round(v))}
         />
         <Dim
@@ -715,9 +835,9 @@ export function ControlPanel({
 
       <div className="px-4 py-3">
         <p className="font-mono text-[10px] leading-relaxed text-slate-bark-600">
-          Indicative span checks only. Confirm every section against the
-          manufacturer&apos;s load tables and get a structural sign-off before
-          you build.
+          Preliminary roof-beam screening only—not a code check or build approval.
+          Obtain site wind/snow loads, exact manufacturer properties, connection
+          and foundation checks, and structural sign-off before construction.
         </p>
       </div>
     </div>

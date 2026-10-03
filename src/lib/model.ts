@@ -30,18 +30,18 @@ export const SHEET_SHORT = 1.219; // 4 ft
 export const DOOR_LEAF_W = SHEET_SHORT;
 export const DOOR_LEAF_H = SHEET_LONG;
 
-/** Clearance below the level perimeter channel for the door leaf, metres. */
+/** Clearance below the low roof-ring underside used to set the level door rail, metres. */
 export const TRACK_DROP = 0.12;
 /** Track wheel diameter, metres. */
 export const WHEEL_DIA = 0.05;
-/** Width of the open-bottom C-channel used as the door rail, metres. */
-export const TRACK_WIDTH = 0.06;
-/** Inward return lip on the door channel, metres. */
-export const TRACK_LIP = 0.015;
-/** Distance between trolley wheel axles along the rail, metres. */
-export const TROLLEY_AXLE_SPACING = 0.14;
+/** Longitudinal spacing between the two axle stations in a four-wheel trolley. */
+export const TROLLEY_AXLE_SPACING = 0.07;
 /** Clearance between the track underside and the top of the leaf, metres. */
 export const LEAF_GAP = 0.02;
+/** Illustrative C-channel width and lower-lip dimensions used for trolley placement. */
+export const TRACK_WIDTH = 0.06;
+export const TRACK_LIP = 0.012;
+const TROLLEY_LATERAL_OFFSET = TRACK_WIDTH / 2 - TRACK_LIP / 2;
 
 export type CornerId = "bl" | "br" | "fl" | "fr";
 export type CornerFix = "rigid90" | "adjustable";
@@ -63,9 +63,11 @@ export interface Design {
   /* Posts */
   postSize: number; // mm SHS
   postGauge: number; // mm wall
-  baySpacing: number; // m maximum post centres on the perimeter
+  postCount: number; // total perimeter posts including four corners
   kneeBraces: boolean; // 45 deg braces into the ring rail
   kneeBraceLength: number; // m, horizontal projection
+  kneeBraceSize: number; // mm, brace channel depth
+  kneeBraceGauge: number; // mm, brace wall thickness
 
   /* C purlin perimeter ring */
   ringDepth: number; // mm
@@ -78,6 +80,10 @@ export interface Design {
   roofPurlinGauge: number; // mm
   roofPurlinSpacing: number; // m centres
 
+  /* Preliminary roof-member screening inputs (not code design values). */
+  roofLoadKpa: number; // kN/m² downward characteristic pressure on plan area
+  steelYieldMpa: number; // nominal steel yield strength from product certificate
+
   /* Wall framing (front + left) */
   studSpacing: number; // m centres
   sillHeight: number; // m
@@ -89,11 +95,17 @@ export interface Design {
 
   /* Sliding doors — leaf size is fixed at one 8x4 sheet, so only count and
      position are adjustable. Doors sit on the front and right runs. */
+  doorTrimDepth: number; // mm, U-channel return depth around the leaf edges
+  doorTrimGauge: number; // mm, U-channel wall thickness
+
   frontDoors: number; // number of leaves on the front run
   rightDoors: number; // number of leaves on the right run
   frontDoorOffset: number; // m in from the front-left corner
   rightDoorOffset: number; // m back from the front-right corner
   doorOpen: number; // 0..1 — display only
+  aluminiumTrimSize: number; // mm, U-channel face width around the door leaves
+  fixingDiameter: number; // mm, illustrative tek screw / bolt head
+  fixingSpacing: number; // m centres for roof sheet fasteners
   glazeFront: boolean;
   glazeRight: boolean;
 
@@ -110,9 +122,11 @@ export const DEFAULT_DESIGN: Design = {
   eaveRight: 3.7,
   postSize: 50,
   postGauge: 3,
-  baySpacing: 2.2,
+  postCount: 16,
   kneeBraces: true,
   kneeBraceLength: 0.9,
+  kneeBraceSize: 60,
+  kneeBraceGauge: 2,
   ringDepth: 100,
   ringGauge: 1.8,
   ringBuildFrontBack: "double",
@@ -120,6 +134,8 @@ export const DEFAULT_DESIGN: Design = {
   roofPurlinDepth: 150,
   roofPurlinGauge: 1.6,
   roofPurlinSpacing: 0.6,
+  roofLoadKpa: 0.75,
+  steelYieldMpa: 250,
   studSpacing: 1.1,
   sillHeight: 0.3,
   polyWall: "twin",
@@ -130,6 +146,11 @@ export const DEFAULT_DESIGN: Design = {
   frontDoorOffset: 2.4,
   rightDoorOffset: 2.2,
   doorOpen: 0,
+  aluminiumTrimSize: 25,
+  doorTrimDepth: 18,
+  doorTrimGauge: 2,
+  fixingDiameter: 6,
+  fixingSpacing: 0.6,
   glazeFront: true,
   glazeRight: true,
   // Front corners are square, back corners are skewed by the offset.
@@ -157,6 +178,9 @@ export interface Member {
   b: Vec3;
   /** Cut length in metres, measured along the member. */
   length: number;
+  /** Optional section axes for edge trim: mouth direction and sheet normal. */
+  profileFacing?: Vec3;
+  profileNormal?: Vec3;
   label?: string;
 }
 
@@ -179,6 +203,74 @@ export interface Panel {
   poly: Vec3[];
   opacity: number;
   label?: string;
+}
+
+export type ComponentCategory =
+  | "posts"
+  | "c-purlins"
+  | "z-purlins"
+  | "braces"
+  | "wall-framing"
+  | "sheets"
+  | "aluminium-trim"
+  | "fixings";
+
+export const COMPONENT_CATEGORIES: {
+  id: ComponentCategory;
+  label: string;
+  color: string;
+}[] = [
+  { id: "posts", label: "SHS posts", color: "#c9d5e2" },
+  { id: "c-purlins", label: "C-purlins", color: "#49c2a7" },
+  { id: "z-purlins", label: "Z-purlins & girders", color: "#e4a747" },
+  { id: "braces", label: "Knee braces", color: "#80aee0" },
+  { id: "wall-framing", label: "Wall framing", color: "#99bd70" },
+  { id: "sheets", label: "Polycarbonate", color: "#67cbe3" },
+  { id: "aluminium-trim", label: "Aluminium trim", color: "#f1c877" },
+  { id: "fixings", label: "Fixings & hardware", color: "#ed806c" },
+];
+
+export type FixingKind = "anchor" | "bolt" | "tek-screw";
+
+export interface Fixing {
+  id: string;
+  kind: FixingKind;
+  at: Vec3;
+  diameter: number; // metres, illustrative head size
+}
+
+export type ComponentVisibility = Record<ComponentCategory, boolean>;
+
+export const DEFAULT_COMPONENT_VISIBILITY: ComponentVisibility = {
+  posts: true,
+  "c-purlins": true,
+  "z-purlins": true,
+  braces: true,
+  "wall-framing": true,
+  sheets: true,
+  "aluminium-trim": true,
+  fixings: true,
+};
+
+export function memberComponent(kind: MemberKind): ComponentCategory {
+  if (kind === "post") return "posts";
+  if (kind === "ring" || kind === "ring-heavy" || kind === "level-ring") return "c-purlins";
+  if (kind === "girder" || kind === "purlin") return "z-purlins";
+  if (kind === "brace") return "braces";
+  if (kind === "stud" || kind === "sill") return "wall-framing";
+  if (kind === "doorframe") return "aluminium-trim";
+  return "fixings";
+}
+
+export function panelComponent(_kind: Panel["kind"]): ComponentCategory {
+  return "sheets";
+}
+
+export function componentVisible(
+  visibility: Partial<ComponentVisibility> | undefined,
+  category: ComponentCategory,
+): boolean {
+  return visibility?.[category] ?? true;
 }
 
 export interface PostNode {
@@ -212,10 +304,18 @@ export interface DoorLeaf {
   parkedPoly: Vec3[];
   width: number;
   height: number;
-  /** The level perimeter member that directly carries this door's trolleys. */
+  /** Member id of the level perimeter C-purlin that supports this leaf. */
   supportMemberId: string;
-  /** Two four-wheel carriages support each leaf. */
+  /** Two trolley carriages, each with four rollers captured inside the C-channel. */
   trolleys: DoorTrolley[];
+}
+
+export interface DoorTrolley {
+  id: string;
+  wheelCentres: Vec3[];
+  parkedWheelCentres: Vec3[];
+  hanger: Member;
+  parkedHanger: Member;
 }
 
 export interface WallBay {
@@ -285,6 +385,7 @@ export interface Model {
   posts: PostNode[];
   members: Member[];
   panels: Panel[];
+  fixings: Fixing[];
   roofSheets: SheetCell[];
   wallBays: WallBay[];
   doors: DoorLeaf[];
@@ -303,7 +404,18 @@ export interface Model {
     steelMetres: number;
     steelKg: number;
     governingPurlinSpan: number;
+    maximumPostSpacing: number;
     trackLength: number;
+    purlinScreen: {
+      loadKpa: number;
+      lineLoadKnM: number;
+      maxMomentKnM: number;
+      grossSectionModulusMm3: number;
+      elasticStressMpa: number;
+      yieldUtilization: number;
+      deflectionMm: number;
+      deflectionLimitMm: number;
+    };
     footprintW: number;
     footprintD: number;
   };
@@ -359,25 +471,49 @@ const dist3 = (a: Vec3, b: Vec3) =>
   Math.hypot(a.x - b.x, a.y - b.y, a.z - b.z);
 
 /* ------------------------------------------------------------------ */
-/* Indicative section capacity tables                                  */
+/* Transparent gross-section screening (not cold-formed design)         */
 /* ------------------------------------------------------------------ */
 
 /**
- * Indicative maximum simply-supported span (m) for a cold-formed Z purlin
- * carrying twinwall at roughly 600 mm centres. Calibrated against Z150x1.6 at
- * about 4.7 m; manufacturer tables always win.
+ * Approximate elastic section modulus for a plain web + two-flange Z/C shape.
+ * Assumes 50 mm flanges and ignores lips, corner radii, effective-width/local
+ * buckling, torsion and manufacturer-specific section properties.
  */
-function zSpanCapacity(depthMm: number, gaugeMm: number): number {
-  const d = depthMm / 1000;
-  const t = Math.max(gaugeMm, 1) / 1000;
-  return Math.round((1.914 * Math.pow(d, 1.224) / Math.sqrt(t)) * 10) / 10;
+function grossSectionModulusMm3(depthMm: number, gaugeMm: number, flangeMm = 50): number {
+  const d = Math.max(1, depthMm);
+  const t = Math.max(0.1, Math.min(gaugeMm, d / 3));
+  const b = Math.max(t, flangeMm);
+  const inertia = (t * Math.pow(d, 3)) / 12 +
+    2 * ((b * Math.pow(t, 3)) / 12 + b * t * Math.pow((d - t) / 2, 2));
+  return inertia / (d / 2);
 }
 
-/** Indicative maximum span (m) for a C purlin used as a ring beam. */
-function cSpanCapacity(depthMm: number, gaugeMm: number): number {
-  const d = depthMm / 1000;
-  const t = Math.max(gaugeMm, 1) / 1000;
-  return Math.round((2.3 * Math.pow(d, 1.224) / Math.sqrt(t)) * 10) / 10;
+function makePurlinScreen(
+  depthMm: number,
+  gaugeMm: number,
+  loadKpa: number,
+  tributaryWidthM: number,
+  spanM: number,
+  yieldMpa: number,
+) {
+  const lineLoadKnM = loadKpa * tributaryWidthM;
+  const maxMomentKnM = (lineLoadKnM * spanM * spanM) / 8;
+  const sectionModulus = grossSectionModulusMm3(depthMm, gaugeMm);
+  const elasticStressMpa = (maxMomentKnM * 1e6) / sectionModulus;
+  const inertiaMm4 = sectionModulus * (depthMm / 2);
+  const spanMm = spanM * 1000;
+  // 1 kN/m equals 1 N/mm; E = 200 GPa for the elastic deflection estimate.
+  const deflectionMm = (5 * lineLoadKnM * Math.pow(spanMm, 4)) / (384 * 200_000 * inertiaMm4);
+  return {
+    loadKpa,
+    lineLoadKnM,
+    maxMomentKnM,
+    grossSectionModulusMm3: sectionModulus,
+    elasticStressMpa,
+    yieldUtilization: elasticStressMpa / Math.max(1, yieldMpa),
+    deflectionMm,
+    deflectionLimitMm: spanMm / 180,
+  };
 }
 
 /* ------------------------------------------------------------------ */
@@ -385,7 +521,10 @@ function cSpanCapacity(depthMm: number, gaugeMm: number): number {
 /* ------------------------------------------------------------------ */
 
 export function buildModel(input: Design): Model {
-  const d: Design = { ...DEFAULT_DESIGN, ...input };
+  const requestedPostCount = Number.isFinite(input.postCount)
+    ? Math.max(4, Math.min(60, Math.round(input.postCount)))
+    : DEFAULT_DESIGN.postCount;
+  const d: Design = { ...DEFAULT_DESIGN, ...input, postCount: requestedPostCount };
   const W = d.width;
   const dL = d.depthLeft;
   const dR = d.depthRight;
@@ -438,28 +577,39 @@ export function buildModel(input: Design): Model {
     });
   };
 
-  /** Evenly spread posts along a run, honouring the max bay spacing. */
-  const addRunPosts = (
-    a: Vec2,
-    b: Vec2,
-    cornerA: CornerId | null,
-    cornerB: CornerId | null,
-  ) => {
-    const len = Math.hypot(b.x - a.x, b.y - a.y);
-    const bays = Math.max(1, Math.ceil(len / d.baySpacing));
+  const postEdges: { a: Vec2; b: Vec2; ca: CornerId; cb: CornerId; length: number; extra: number; remainder: number }[] = [
+    { a: plan.bl, b: plan.br, ca: "bl", cb: "br", length: Math.hypot(plan.br.x - plan.bl.x, plan.br.y - plan.bl.y), extra: 0, remainder: 0 },
+    { a: plan.br, b: plan.fr, ca: "br", cb: "fr", length: Math.hypot(plan.fr.x - plan.br.x, plan.fr.y - plan.br.y), extra: 0, remainder: 0 },
+    { a: plan.fr, b: plan.fl, ca: "fr", cb: "fl", length: Math.hypot(plan.fl.x - plan.fr.x, plan.fl.y - plan.fr.y), extra: 0, remainder: 0 },
+    { a: plan.fl, b: plan.bl, ca: "fl", cb: "bl", length: Math.hypot(plan.bl.x - plan.fl.x, plan.bl.y - plan.fl.y), extra: 0, remainder: 0 },
+  ];
+  const intermediatePosts = requestedPostCount - 4;
+  const perimeterLength = postEdges.reduce((sum, edge) => sum + edge.length, 0);
+  let allocatedPosts = 0;
+  for (const edge of postEdges) {
+    const exact = perimeterLength > 0 ? (intermediatePosts * edge.length) / perimeterLength : 0;
+    edge.extra = Math.floor(exact);
+    edge.remainder = exact - edge.extra;
+    allocatedPosts += edge.extra;
+  }
+  postEdges
+    .slice()
+    .sort((a, b) => b.remainder - a.remainder)
+    .slice(0, intermediatePosts - allocatedPosts)
+    .forEach((edge) => edge.extra++);
+
+  let maximumPostSpacing = 0;
+  for (const edge of postEdges) {
+    const bays = edge.extra + 1;
+    maximumPostSpacing = Math.max(maximumPostSpacing, edge.length / bays);
     for (let i = 0; i <= bays; i++) {
       const t = i / bays;
       addPost(
-        { x: a.x + (b.x - a.x) * t, y: a.y + (b.y - a.y) * t },
-        i === 0 ? cornerA : i === bays ? cornerB : null,
+        { x: edge.a.x + (edge.b.x - edge.a.x) * t, y: edge.a.y + (edge.b.y - edge.a.y) * t },
+        i === 0 ? edge.ca : i === bays ? edge.cb : null,
       );
     }
-  };
-
-  addRunPosts(plan.bl, plan.br, "bl", "br"); // back  — wall / fence
-  addRunPosts(plan.br, plan.fr, "br", "fr"); // right — doors
-  addRunPosts(plan.fr, plan.fl, "fr", "fl"); // front — doors
-  addRunPosts(plan.fl, plan.bl, "fl", "bl"); // left  — log cabin
+  }
 
   posts.sort((p, q) => p.at.x - q.at.x || p.at.y - q.at.y);
 
@@ -488,7 +638,7 @@ export function buildModel(input: Design): Model {
   // stopping short of the end of the run.
   const braceLen = Math.min(
     d.kneeBraceLength,
-    Math.max(d.baySpacing * 0.45, 0.3),
+    Math.max(maximumPostSpacing * 0.45, 0.3),
   );
   let braceCount = 0;
   if (d.kneeBraces) {
@@ -545,7 +695,7 @@ export function buildModel(input: Design): Model {
     b: CornerId;
     build: RingBuild;
   }[] = [
-    { id: "back", a: "bl", b: "br", build: "single" },
+    { id: "back", a: "bl", b: "br", build: d.ringBuildFrontBack },
     { id: "right", a: "br", b: "fr", build: "single" },
     {
       id: "front",
@@ -579,10 +729,10 @@ export function buildModel(input: Design): Model {
   /* ---------------- Level C-purlin perimeter / door rail ------------ */
 
   const levelRailDepth = Math.max(0.05, ringD);
-  // A single horizontal perimeter elevation clears a full-height door at the
-  // low eave. Each run is fixed directly to the perimeter posts.
+  // Set the channel from the low eave ring so the full-height leaves clear
+  // the floor there; the same member elevation continues around all sides.
   const levelRailZ = Math.min(zL, zR) - ringD - TRACK_DROP - levelRailDepth / 2;
-  const perimeterRails = ringRuns.map((run) => {
+  const perimeterRails: Member[] = ringRuns.map((run) => {
     const a = plan[run.a];
     const b = plan[run.b];
     const length = Math.hypot(b.x - a.x, b.y - a.y);
@@ -599,23 +749,26 @@ export function buildModel(input: Design): Model {
   });
   const perimeterRailLength = perimeterRails.reduce((sum, rail) => sum + rail.length, 0);
   const doorRailBySide = new Map(ringRuns.map((run, index) => [run.id, perimeterRails[index]]));
-  const trackLength =
-    (d.frontDoors > 0 ? perimeterRails.find((rail) => rail.label?.endsWith("front"))?.length ?? 0 : 0) +
-    (d.rightDoors > 0 ? perimeterRails.find((rail) => rail.label?.endsWith("right"))?.length ?? 0 : 0);
+  const trackLength = perimeterRails
+    .filter((rail) =>
+      (d.frontDoors > 0 && rail.label?.endsWith("front")) ||
+      (d.rightDoors > 0 && rail.label?.endsWith("right")),
+    )
+    .reduce((sum, rail) => sum + rail.length, 0);
 
   /* ---------------- Roof frame: Z girders + Z purlins --------------- */
 
-  // Primary Z girders run front -> back and land on the front & back ring
-  // rails, so the 8.5 m opening is spanned by the ring, not by a purlin.
+  // Primary Z girders run from the skew rear ring to the straight front ring.
   const girders: Member[] = [];
   for (let i = 0; i < d.girderCount; i++) {
     const x = W * ((i + 1) / (d.girderCount + 1));
-    const len = depthAt(x);
+    const yBack = backAt(x);
+    const len = frontY - yBack;
     const m: Member = {
       id: mid_(),
       kind: "girder",
-      a: { x, y: 0, z: eaveAt(x) },
-      b: { x, y: len, z: eaveAt(x) },
+      a: { x, y: yBack, z: eaveAt(x) - d.roofPurlinDepth / 2000 },
+      b: { x, y: frontY, z: eaveAt(x) - d.roofPurlinDepth / 2000 },
       length: len,
       label: `Z${d.roofPurlinDepth}\u00d7${d.roofPurlinGauge}`,
     };
@@ -623,17 +776,29 @@ export function buildModel(input: Design): Model {
     members.push(m);
   }
 
-  // Secondary Z purlins run left -> right across the girders.
-  const purlinLines = Math.max(1, Math.ceil(maxDepth / d.roofPurlinSpacing));
+  // Z purlins span left-to-right at regular depth stations. Where a station
+  // intersects the skewed rear edge before reaching the left/right eave, trim
+  // the corresponding end instead of drawing steel outside the roof polygon.
+  const roofDepth = maxDepth - minY;
+  const purlinLines = Math.max(1, Math.ceil(roofDepth / d.roofPurlinSpacing));
   const purlins: Member[] = [];
   for (let i = 0; i <= purlinLines; i++) {
-    const y = (maxDepth * i) / purlinLines;
-    const len = Math.hypot(W, zR - zL);
+    const y = minY + (roofDepth * i) / purlinLines;
+    let startX = 0;
+    let endX = W;
+    if (y < Math.max(backY0, backY1) - 1e-8) {
+      const rearX = Math.max(0, Math.min(W, ((y - backY0) / (backY1 - backY0 || 1)) * W));
+      if (backY1 >= backY0) endX = rearX;
+      else startX = rearX;
+    }
+    const runX = endX - startX;
+    if (runX < 0.05) continue;
+    const len = Math.hypot(runX, (zR - zL) * runX / W);
     const m: Member = {
       id: mid_(),
       kind: "purlin",
-      a: { x: 0, y, z: eaveAt(0) },
-      b: { x: W, y, z: eaveAt(W) },
+      a: { x: startX, y, z: eaveAt(startX) - d.roofPurlinDepth / 2000 },
+      b: { x: endX, y, z: eaveAt(endX) - d.roofPurlinDepth / 2000 },
       length: len,
       label: `Z${d.roofPurlinDepth}\u00d7${d.roofPurlinGauge}`,
     };
@@ -641,14 +806,38 @@ export function buildModel(input: Design): Model {
     members.push(m);
   }
 
-  // Governing span of the roof purlins = widest gap between supports
-  // (girders plus the two ring rails at the ends).
-  const supports = [0, ...girders.map((g) => g.a.x), W].sort((a, b) => a - b);
+  // Width-running purlins are supported by the perimeter side rings and
+  // intermediate depth-running girders. Track their longest clear x-span.
   let governingSpan = 0;
-  for (let i = 1; i < supports.length; i++) {
-    governingSpan = Math.max(governingSpan, supports[i] - supports[i - 1]);
+  for (const purlin of purlins) {
+    const supports = [
+      purlin.a.x,
+      ...girders
+        .filter((girder) => {
+          const x = girder.a.x;
+          return (
+            x > purlin.a.x + 1e-6 &&
+            x < purlin.b.x - 1e-6 &&
+            purlin.a.y >= backAt(x) - 1e-6 &&
+            purlin.a.y <= frontY + 1e-6
+          );
+        })
+        .map((girder) => girder.a.x),
+      purlin.b.x,
+    ].sort((a, b) => a - b);
+    for (let i = 1; i < supports.length; i++) {
+      governingSpan = Math.max(governingSpan, supports[i] - supports[i - 1]);
+    }
   }
-  if (girders.length === 0) governingSpan = W;
+  if (purlins.length === 0) governingSpan = W;
+  const purlinScreen = makePurlinScreen(
+    d.roofPurlinDepth,
+    d.roofPurlinGauge,
+    d.roofLoadKpa,
+    roofDepth / purlinLines,
+    governingSpan,
+    d.steelYieldMpa,
+  );
 
   /* ---------------- Roof sheeting layout ---------------------------- */
 
@@ -660,10 +849,10 @@ export function buildModel(input: Design): Model {
     { x: 0, y: SHEET_SHORT },
   ];
   const roofClip: Vec2[] = [
-    { x: -ov, y: minY - ov },
-    { x: W + ov, y: minY - ov },
-    { x: W + ov, y: maxDepth + ov },
-    { x: -ov, y: maxDepth + ov },
+    { x: -ov, y: backY0 - ov },
+    { x: W + ov, y: backY1 - ov },
+    { x: W + ov, y: frontY + ov },
+    { x: -ov, y: frontY + ov },
   ];
   const structureClip: Vec2[] = [plan.bl, plan.br, plan.fr, plan.fl];
 
@@ -674,7 +863,7 @@ export function buildModel(input: Design): Model {
 
   for (let c = 0; c < cols; c++) {
     for (let r = 0; r < rows; r++) {
-      const origin = { x: c * SHEET_LONG, y: r * SHEET_SHORT };
+      const origin = { x: -ov + c * SHEET_LONG, y: minY - ov + r * SHEET_SHORT };
       const world = sheetPoly.map((p) => ({ x: p.x + origin.x, y: p.y + origin.y }));
       const clipped = clipPolygon(world, roofClip);
       if (clipped.length < 3) continue;
@@ -707,7 +896,6 @@ export function buildModel(input: Design): Model {
     offset: number;
     runLen: number;
     toWorld: (t: number) => { x: number; y: number };
-    topAt: (x: number) => number;
     glazed: boolean;
   }[] = [];
 
@@ -717,7 +905,6 @@ export function buildModel(input: Design): Model {
     offset: d.frontDoorOffset,
     runLen: W,
     toWorld: (t) => ({ x: (t / W) * W, y: frontY }),
-    topAt: (x) => eaveAt(x),
     glazed: d.glazeFront,
   });
 
@@ -727,7 +914,6 @@ export function buildModel(input: Design): Model {
     offset: d.rightDoorOffset,
     runLen: dR,
     toWorld: (t) => ({ x: W, y: frontY - t }),
-    topAt: () => zR,
     glazed: d.glazeRight,
   });
 
@@ -740,8 +926,8 @@ export function buildModel(input: Design): Model {
     const trackD = levelRailDepth;
     const supportRail = doorRailBySide.get(spec.side)!;
 
-    // Doors run directly in the front/right members of the level perimeter;
-    // no drop rods or sloped roof-ring geometry participate in this stack.
+    /* The door C-purlin is part of the level perimeter, bolted directly to
+       the posts. It is independent of the sloped roof ring and roof purlins. */
     const trackBottom = (_t: number) => supportRail.a.z - trackD / 2;
     const leafTop = (t: number) => trackBottom(t) - LEAF_GAP;
     const leafBottom = (t: number) => leafTop(t) - leafH;
@@ -836,15 +1022,25 @@ export function buildModel(input: Design): Model {
         { x: p1.x, y: p1.y, z: leafTop(e) },
         { x: p0.x, y: p0.y, z: leafTop(s) },
       ];
-      /* `poly` is the leaf closed, and runStart/runEnd are its closed
-         position along the run. When it slides it travels this far and no
-         further, which is why the track has to be as long as it is. */
-      const slideDir = spec.side === "front" ? -1 : 1;
-      const park = i * (leafW + gap);
+      /* `poly` is the closed leaf. Single leaves park into a clear adjacent
+         bay; paired leaves retain their existing overlap/stack behavior. */
+      const preferredSlideDir: 1 | -1 = spec.side === "front" ? -1 : 1;
+      const availableBefore = Math.max(0, s);
+      const availableAfter = Math.max(0, spec.runLen - e);
+      const preferredClearance = preferredSlideDir === -1 ? availableBefore : availableAfter;
+      const alternateClearance = preferredSlideDir === -1 ? availableAfter : availableBefore;
+      const slideDir: 1 | -1 = spec.leaves === 1 && preferredClearance < leafW && alternateClearance > preferredClearance
+        ? preferredSlideDir === -1 ? 1 : -1
+        : preferredSlideDir;
+      // A single leaf parks one sheet-width into the adjacent clear bay;
+      // paired leaves stack onto the first leaf as before.
+      const park = spec.leaves === 1
+        ? Math.min(leafW + gap, slideDir === -1 ? availableBefore : availableAfter)
+        : i * (leafW + gap);
+      const q0 = spec.toWorld(s + park * slideDir);
+      const q1 = spec.toWorld(e + park * slideDir);
       const parkedStart = s + park * slideDir;
       const parkedEnd = e + park * slideDir;
-      const q0 = spec.toWorld(parkedStart);
-      const q1 = spec.toWorld(parkedEnd);
       const parkedPoly: Vec3[] = [
         { x: q0.x, y: q0.y, z: leafBottom(parkedStart) },
         { x: q1.x, y: q1.y, z: leafBottom(parkedEnd) },
@@ -854,7 +1050,7 @@ export function buildModel(input: Design): Model {
 
       const trolleyAssemblies = [0.22, 0.78].map((fraction, trolleyIndex) => {
         const closedAt = s + leafW * fraction;
-        const parkedAt = parkedStart + leafW * fraction;
+        const parkedAt = s + park * slideDir + leafW * fraction;
         const wheelSet = (at: number): Vec3[] =>
           [-TROLLEY_AXLE_SPACING / 2, TROLLEY_AXLE_SPACING / 2].flatMap((axial) => {
             const centre = spec.toWorld(at + axial);
@@ -862,9 +1058,11 @@ export function buildModel(input: Design): Model {
             const tangentLength = Math.hypot(ahead.x - centre.x, ahead.y - centre.y) || 1;
             const nx = (ahead.y - centre.y) / tangentLength;
             const ny = -(ahead.x - centre.x) / tangentLength;
-            return [-TRACK_WIDTH / 4, TRACK_WIDTH / 4].map((lateral) => ({
+            return [-TROLLEY_LATERAL_OFFSET, TROLLEY_LATERAL_OFFSET].map((lateral) => ({
               x: centre.x + nx * lateral,
               y: centre.y + ny * lateral,
+              // Rollers bear on the inward lower lips of the open-bottom
+              // channel; their lower tangent meets the lip running surface.
               z: trackBottom(at + axial) + WHEEL_DIA / 2,
             }));
           });
@@ -880,18 +1078,14 @@ export function buildModel(input: Design): Model {
             label: "four-wheel trolley hanger",
           };
         };
-        const closedHanger = hanger(closedAt);
-        const parkedHanger = hanger(parkedAt);
-        members.push(closedHanger);
         return {
           id: `trolley-${spec.side}-${i}-${trolleyIndex}`,
           wheelCentres: wheelSet(closedAt),
           parkedWheelCentres: wheelSet(parkedAt),
-          hanger: closedHanger,
-          parkedHanger,
+          hanger: hanger(closedAt),
+          parkedHanger: hanger(parkedAt),
         };
       });
-
       const leaf: DoorLeaf = {
         id: `door-${spec.side}-${i}`,
         side: spec.side,
@@ -916,16 +1110,84 @@ export function buildModel(input: Design): Model {
         [poly[0], poly[3]],
         [poly[1], poly[2]],
       ];
+      const leafCentre = poly.reduce(
+        (sum, point) => ({ x: sum.x + point.x / 4, y: sum.y + point.y / 4, z: sum.z + point.z / 4 }),
+        { x: 0, y: 0, z: 0 },
+      );
+      const profileNormal = spec.side === "front" ? { x: 0, y: -1, z: 0 } : { x: -1, y: 0, z: 0 };
       for (const [a, b] of edges) {
+        const midpoint = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2, z: (a.z + b.z) / 2 };
+        const inward = { x: leafCentre.x - midpoint.x, y: leafCentre.y - midpoint.y, z: leafCentre.z - midpoint.z };
+        const tangent = { x: b.x - a.x, y: b.y - a.y, z: b.z - a.z };
+        const mouth = {
+          x: tangent.y * profileNormal.z - tangent.z * profileNormal.y,
+          y: tangent.z * profileNormal.x - tangent.x * profileNormal.z,
+          z: tangent.x * profileNormal.y - tangent.y * profileNormal.x,
+        };
+        const mouthLength = Math.hypot(mouth.x, mouth.y, mouth.z) || 1;
+        const facing = { x: mouth.x / mouthLength, y: mouth.y / mouthLength, z: mouth.z / mouthLength };
+        const facingDot = facing.x * inward.x + facing.y * inward.y + facing.z * inward.z;
         members.push({
           id: mid_(),
           kind: "doorframe",
           a,
           b,
           length: dist3(a, b),
-          label: "casing",
+          profileFacing: facingDot < 0 ? { x: -facing.x, y: -facing.y, z: -facing.z } : facing,
+          profileNormal,
+          label: `aluminium U-channel door trim ${d.aluminiumTrimSize}×${d.doorTrimDepth}×${d.doorTrimGauge} mm`,
         });
       }
+    }
+
+  }
+
+  /* ---------------- Illustrative connection and sheet fixings -------- */
+
+  const fixings: Fixing[] = [];
+  const fixingDiameter = Math.max(3, d.fixingDiameter) / 1000;
+  for (const post of posts) {
+    for (const [dx, dy] of [[-1, -1], [1, -1], [1, 1], [-1, 1]] as const) {
+      fixings.push({
+        id: `anchor-${post.id}-${dx}-${dy}`,
+        kind: "anchor",
+        at: {
+          x: post.at.x + dx * d.postSize / 3000,
+          y: post.at.y + dy * d.postSize / 3000,
+          z: 0.025,
+        },
+        diameter: fixingDiameter * 1.5,
+      });
+    }
+    for (const railZ of [ringZ(post.at.x), levelRailZ]) {
+      for (const side of [-1, 1] as const) {
+        fixings.push({
+          id: `bolt-${post.id}-${railZ}-${side}`,
+          kind: "bolt",
+          at: {
+            x: post.at.x + side * d.postSize / 2500,
+            y: post.at.y,
+            z: railZ,
+          },
+          diameter: fixingDiameter * 1.6,
+        });
+      }
+    }
+  }
+  for (const purlin of purlins) {
+    const stations = Math.max(1, Math.floor(purlin.length / Math.max(0.2, d.fixingSpacing)));
+    for (let i = 0; i <= stations; i++) {
+      const t = (i + 0.5) / (stations + 1);
+      fixings.push({
+        id: `tek-${purlin.id}-${i}`,
+        kind: "tek-screw",
+        at: {
+          x: purlin.a.x + (purlin.b.x - purlin.a.x) * t,
+          y: purlin.a.y + (purlin.b.y - purlin.a.y) * t,
+          z: purlin.a.z + (purlin.b.z - purlin.a.z) * t + d.roofPurlinDepth / 2000,
+        },
+        diameter: fixingDiameter,
+      });
     }
   }
 
@@ -1047,6 +1309,18 @@ export function buildModel(input: Design): Model {
   }
 
   cutList.push({
+    id: "door-rails",
+    group: "Steel",
+    item: "Level perimeter C-purlin / door rails",
+    spec: `C${d.ringDepth}×${d.ringGauge} mm`,
+    qty: perimeterRails.length,
+    unit: "lengths",
+    lengthMm: Math.ceil(Math.max(...perimeterRails.map((rail) => rail.length), 0) * 1000),
+    totalM: perimeterRailLength,
+    note: "Four horizontal runs fixed directly to the perimeter posts. Front and right runs are the door trolley channels; doors do not hang from roof purlins.",
+  });
+
+  cutList.push({
     id: "girders",
     group: "Steel",
     item: "Primary Z girders (back to front)",
@@ -1065,7 +1339,7 @@ export function buildModel(input: Design): Model {
     spec: `Z${d.roofPurlinDepth}\u00d7${d.roofPurlinGauge} mm`,
     qty: purlins.length,
     unit: "lengths",
-    lengthMm: Math.ceil(Math.hypot(W, zR - zL) * 1000),
+    lengthMm: Math.ceil(Math.max(...purlins.map((g) => g.length), 0) * 1000),
     totalM: purlins.reduce((a, g) => a + g.length, 0),
     note: `Cut to the rafter length with the ${roofPitchDeg.toFixed(1)}\u00b0 fall.`,
   });
@@ -1096,7 +1370,7 @@ export function buildModel(input: Design): Model {
     id: "braces",
     group: "Steel",
     item: "Knee braces",
-    spec: `C${Math.max(50, Math.round(d.ringDepth * 0.6))}\u00d7${Math.max(50, Math.round(d.ringDepth * 0.6))} mm, 45\u00b0`,
+    spec: `C${d.kneeBraceSize}\u00d7${d.kneeBraceSize}\u00d7${d.kneeBraceGauge} mm, 45\u00b0`,
     qty: braceCount,
     unit: "no.",
     lengthMm: Math.ceil(Math.hypot(braceLen, braceLen) * 1000),
@@ -1117,6 +1391,8 @@ export function buildModel(input: Design): Model {
     note: "One per purlin per bearing point, bolted through the purlin flange.",
   });
 
+
+
   cutList.push({
     id: "door-rail-cleats",
     group: "Fixings",
@@ -1124,7 +1400,7 @@ export function buildModel(input: Design): Model {
     spec: "Bolted C-purlin-to-SHS connections",
     qty: posts.length,
     unit: "no.",
-    note: "One support at each perimeter post; level rails are carried by posts, not roof purlins.",
+    note: "One at each perimeter post; the level door rail is supported by posts, not roof purlins.",
   });
 
   cutList.push({
@@ -1134,18 +1410,18 @@ export function buildModel(input: Design): Model {
     spec: `${(WHEEL_DIA * 1000).toFixed(0)} mm rollers; 2 carriages × 4 rollers per leaf`,
     qty: sheetCount * 2,
     unit: "assemblies",
-    note: "Eight rollers per leaf. Select a trolley/channel pairing rated for the door weight and confirm fit with the supplier.",
+    note: `Eight rollers per leaf. Carriages run inside the C-channel; select the exact track/trolley pair from the hardware supplier and confirm fit and rated capacity.`,
   });
 
   cutList.push({
     id: "casing",
     group: "Doors",
-    item: "Door casing / trim",
-    spec: `25\u00d725 mm aluminium box, mitred`,
+    item: "Door U-channel trim",
+    spec: `${d.aluminiumTrimSize}×${d.doorTrimDepth}×${d.doorTrimGauge} mm aluminium U-channel, mitred`,
     qty: sheetCount,
     unit: "sets",
     totalM: sheetCount * 2 * (DOOR_LEAF_W + DOOR_LEAF_H),
-    note: "Four sticks per leaf plus a mid rail if the leaf is two sheets tall.",
+    note: "Four U-channel lengths per leaf; channel wraps sheet edges with the opening turned inward.",
   });
 
   const roofFull = roofSheets.filter((s) => s.full).length;
@@ -1221,41 +1497,23 @@ export function buildModel(input: Design): Model {
 
   /* ---------------- Warnings ---------------------------------------- */
 
-  const zCap = zSpanCapacity(d.roofPurlinDepth, d.roofPurlinGauge);
-  if (governingSpan > zCap) {
+  if (purlinScreen.yieldUtilization > 1 || purlinScreen.deflectionMm > purlinScreen.deflectionLimitMm) {
     warnings.push({
       level: "warn",
-      title: `Roof purlin span ${governingSpan.toFixed(2)} m is long for a Z${d.roofPurlinDepth}`,
+      title: `Roof Z purlin preliminary screen exceeds a limit (${Math.round(purlinScreen.yieldUtilization * 100)}% gross-yield utilization)`,
       detail:
-        `Indicative capacity for a Z${d.roofPurlinDepth}\u00d7${d.roofPurlinGauge} at ` +
-        `${(governingSpan * 1.0).toFixed(1)} m centres is around ${zCap.toFixed(1)} m. ` +
-        `Add a girder (currently ${d.girderCount}), double the purlin, or drop ` +
-        `the purlin centres. Check the manufacturer table before ordering.`,
+        `At ${d.roofLoadKpa.toFixed(2)} kN/m² and a ${governingSpan.toFixed(2)} m span, ` +
+        `the simplified elastic estimate is ${purlinScreen.elasticStressMpa.toFixed(0)} MPa ` +
+        `and ${purlinScreen.deflectionMm.toFixed(0)} mm deflection (screening limit ` +
+        `${purlinScreen.deflectionLimitMm.toFixed(0)} mm). Reduce span/load or select a larger/thicker section, then verify using exact manufacturer design properties.`,
     });
   }
 
-  // The front and back ring rails span the full width. Knee braces at each
-  // end knock the effective span back by twice the brace projection.
-  const bracedSpan = Math.max(
-    0.5,
-    W - (braceCount > 0 ? braceLen * 2 : 0),
-  );
-  const cCap = cSpanCapacity(
-    d.ringDepth * (d.ringBuildFrontBack === "double" ? 1.45 : 1),
-    d.ringGauge,
-  );
-  if (bracedSpan > cCap) {
-    warnings.push({
-      level: "warn",
-      title: `Front / back ring spans ${bracedSpan.toFixed(2)} m${braceCount > 0 ? " with knee braces" : ""}`,
-      detail:
-        `A${d.ringBuildFrontBack === "double" ? "doubled" : "single"} ` +
-        `C${d.ringDepth}\u00d7${d.ringGauge} is indicative to about ${cCap.toFixed(1)} m here. ` +
-        (braceCount === 0
-          ? "Turn the knee braces on, go deeper on the section, or drop the front and back posts to a closer spacing."
-          : `Go deeper on the ring (C150 or C200), or close the post spacing so the braces do more of the work.`),
-    });
-  }
+  warnings.push({
+    level: "info",
+    title: "Preliminary roof-member screen only",
+    detail: "Uses simple-span beam formulas and an idealized gross C/Z section. It excludes wind uplift, load combinations, local/distortional and lateral buckling, continuity, connection and foundation capacity. This is not a code design or construction sign-off.",
+  });
 
   for (const c of corners) {
     if (!c.ok) {
@@ -1270,11 +1528,11 @@ export function buildModel(input: Design): Model {
     }
   }
 
-  // The level rail sits below the low eave ring; leaves clear its underside
-  // by LEAF_GAP and then continue down by one full 8x4 sheet.
-  const stackBelowLowEave = ringD + TRACK_DROP + levelRailDepth + LEAF_GAP + DOOR_LEAF_H;
+  // The common level rail is set from the low roof-ring underside; the leaf
+  // then hangs below that C-channel on four-wheel carriages.
+  const stackBelowLowEave = ringD + TRACK_DROP + levelRailDepth / 2 + LEAF_GAP + DOOR_LEAF_H;
   const doorSill = Math.min(zL, zR) - stackBelowLowEave;
-  if (doorLeafCount > 0 && doorSill < 0) {
+  if (d.frontDoors + d.rightDoors > 0 && doorSill < 0) {
     warnings.push({
       level: "error",
       title: "The doors do not clear the floor at the low end",
@@ -1283,7 +1541,7 @@ export function buildModel(input: Design): Model {
         `${stackBelowLowEave.toFixed(2)} m below the low eave. Raise the low eave by ` +
         `${Math.ceil(-doorSill * 1000)} mm or more.`,
     });
-  } else if (doorLeafCount > 0 && doorSill < 0.075) {
+  } else if (d.frontDoors + d.rightDoors > 0 && doorSill < 0.075) {
     warnings.push({
       level: "warn",
       title: `Doors only clear the floor by ${Math.round(doorSill * 1000)} mm`,
@@ -1319,30 +1577,33 @@ export function buildModel(input: Design): Model {
     });
   }
 
-  if (d.baySpacing > 2.5) {
+  if (maximumPostSpacing > 2.5) {
     warnings.push({
-      level: "info",
-      title: `Perimeter posts at ${d.baySpacing.toFixed(1)} m centres`,
-      detail: "A tighter 2.0\u20132.2 m centres keeps the glazing bars straight and stops the rail sagging.",
+      level: "warn",
+      title: `Perimeter post bays reach ${maximumPostSpacing.toFixed(2)} m`,
+      detail: `The selected ${posts.length} posts leave long perimeter bays. Increase the post count to shorten them; this geometry note is not a capacity check.`,
     });
   }
 
   /* ---------------- Stats -------------------------------------------- */
 
-  const roofArea = polyArea(structureClip) * Math.cos((roofPitchDeg * Math.PI) / 180);
+  const roofArea = polyArea(structureClip) * Math.sqrt(1 + Math.pow((zR - zL) / W, 2));
   const glazedArea =
     wallBays
       .filter((b) => b.type === "glazed")
       .reduce((a, b) => a + b.width * b.height, 0) / 1000;
 
+  const channelMetres = members
+    .filter((member) => member.kind === "stud" || member.kind === "sill")
+    .reduce((sum, member) => sum + member.length, 0);
   const steelKg =
     cSteelKgPerM(d.ringDepth, d.ringGauge) *
-      (ringInfo.reduce((a, r) => a + r.len * (r.build === "double" ? 2 : 1), 0) + perimeterRailLength) +
-    cSteelKgPerM(d.ringDepth, d.ringGauge) *
-      (members.filter((m) => m.kind === "stud" || m.kind === "sill" || m.label === "four-wheel trolley hanger").reduce((a, m) => a + m.length, 0)) +
+      (ringInfo.reduce((sum, run) => sum + run.len * (run.build === "double" ? 2 : 1), 0) +
+        perimeterRailLength + channelMetres) +
     zSteelKgPerM(d.roofPurlinDepth, d.roofPurlinGauge) *
-      (purlins.reduce((a, m) => a + m.length, 0) + girders.reduce((a, m) => a + m.length, 0)) +
-    shsKgPerM(d.postSize, d.postGauge) * posts.reduce((a, p) => a + p.height, 0);
+      (purlins.reduce((sum, member) => sum + member.length, 0) +
+        girders.reduce((sum, member) => sum + member.length, 0)) +
+    shsKgPerM(d.postSize, d.postGauge) * posts.reduce((sum, post) => sum + post.height, 0);
 
   const stats: Model["stats"] = {
     planArea: polyArea(structureClip),
@@ -1356,7 +1617,9 @@ export function buildModel(input: Design): Model {
     steelMetres: members.reduce((a, m) => a + m.length, 0),
     steelKg: Math.round(steelKg),
     governingPurlinSpan: governingSpan,
+    maximumPostSpacing,
     trackLength,
+    purlinScreen,
     footprintW: W,
     footprintD: maxDepth,
   };
@@ -1371,6 +1634,7 @@ export function buildModel(input: Design): Model {
     posts,
     members,
     panels,
+    fixings,
     roofSheets,
     wallBays,
     doors,
