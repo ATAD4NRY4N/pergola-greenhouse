@@ -252,7 +252,7 @@ describe("doors", () => {
       expect(railAtPost).toBe(true);
     }
 
-    const trackD = Math.max(0.05, base.ringDepth / 1000);
+    const channelDepth = Math.max(0.05, base.ringDepth / 1000);
     for (const leaf of m.doors) {
       const support = rails.find((rail) => rail.id === leaf.supportMemberId);
       expect(support).toBeDefined();

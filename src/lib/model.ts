@@ -280,6 +280,16 @@ export interface PostNode {
   corner: CornerId | null;
 }
 
+export interface DoorTrolley {
+  id: string;
+  /** Four wheel centres captured inside the level C-channel. */
+  wheelCentres: Vec3[];
+  /** Wheel centres after the door has parked fully open. */
+  parkedWheelCentres: Vec3[];
+  hanger: Member;
+  parkedHanger: Member;
+}
+
 export interface DoorLeaf {
   id: string;
   side: "front" | "right";
@@ -1260,6 +1270,23 @@ export function buildModel(input: Design): Model {
     unit: "no.",
     note: "One per post, set on an 18 mm level peg in a concrete pad.",
   });
+
+  for (const rail of perimeterRails) {
+    const run = rail.label?.split("· ")[1] ?? "perimeter";
+    cutList.push({
+      id: `level-rail-${run}`,
+      group: "Steel",
+      item: `Level perimeter C-purlin — ${run} run`,
+      spec: `C${d.ringDepth}\u00d7${d.ringGauge} mm`,
+      qty: 1,
+      unit: "length",
+      lengthMm: Math.ceil(rail.length * 1000),
+      totalM: rail.length,
+      note: run === "front" || run === "right"
+        ? "Level run fixed to perimeter posts; this channel carries door trolleys."
+        : "Level run fixed directly to perimeter posts.",
+    });
+  }
 
   for (const r of ringInfo) {
     cutList.push({
