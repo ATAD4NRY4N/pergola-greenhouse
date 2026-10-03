@@ -187,6 +187,52 @@ describe("doors", () => {
     }
   });
 
+  test("a single leaf is modeled with captured trolleys and parks into the clear bay", () => {
+    const m = buildModel({ ...base, frontDoors: 1, rightDoors: 0 });
+    expect(m.doors).toHaveLength(1);
+    const [leaf] = m.doors;
+    expect(leaf.side).toBe("front");
+    expect(leaf.width).toBeCloseTo(SHEET_SHORT);
+    expect(leaf.height).toBeCloseTo(SHEET_LONG);
+    expect(leaf.travel).toBeCloseTo(SHEET_SHORT + 0.02);
+    expect(leaf.trolleys).toHaveLength(2);
+    expect(leaf.trolleys.every((trolley) => trolley.wheelCentres.length === 4)).toBe(true);
+    expect(leaf.parkedPoly[0].x - leaf.poly[0].x).toBeCloseTo(-leaf.travel);
+    expect(leaf.parkedPoly[1].x - leaf.poly[1].x).toBeCloseTo(-leaf.travel);
+
+    const trimMembers = m.members.filter((member) => member.kind === "doorframe");
+    expect(trimMembers).toHaveLength(4);
+    expect(trimMembers.every((member) => member.label?.includes("aluminium U-channel"))).toBe(true);
+    const leafCentre = leaf.poly.reduce(
+      (sum, point) => ({ x: sum.x + point.x / 4, y: sum.y + point.y / 4, z: sum.z + point.z / 4 }),
+      { x: 0, y: 0, z: 0 },
+    );
+    for (const trimMember of trimMembers) {
+      const midpoint = {
+        x: (trimMember.a.x + trimMember.b.x) / 2,
+        y: (trimMember.a.y + trimMember.b.y) / 2,
+        z: (trimMember.a.z + trimMember.b.z) / 2,
+      };
+      const facing = trimMember.profileFacing!;
+      expect(
+        facing.x * (leafCentre.x - midpoint.x) +
+          facing.y * (leafCentre.y - midpoint.y) +
+          facing.z * (leafCentre.z - midpoint.z),
+      ).toBeGreaterThan(0);
+    }
+    expect(m.cutList.find((item) => item.id === "casing")?.spec).toBe(
+      "25×18×2 mm aluminium U-channel, mitred",
+    );
+  });
+
+  test("a single leaf at the run end chooses the clear side for travel", () => {
+    const m = buildModel({ ...base, frontDoors: 1, rightDoors: 0, frontDoorOffset: 0 });
+    const [leaf] = m.doors;
+    expect(leaf.slideDir).toBe(1);
+    expect(leaf.travel).toBeCloseTo(SHEET_SHORT + 0.02);
+    expect(leaf.parkedPoly[0].x - leaf.poly[0].x).toBeCloseTo(leaf.travel);
+  });
+
   test("every door hangs from the level perimeter C-purlin at a common height", () => {
     const m = buildModel(base);
     const rails = m.members.filter((member) => member.kind === "level-ring");
@@ -349,6 +395,17 @@ describe("doors", () => {
     expect(bare.members.filter((x) => x.kind === "brace")).toHaveLength(0);
 
     expect(braced.posts).toHaveLength(bare.posts.length);
+  });
+
+  test("model includes illustrative physical fasteners that respond to their controls", () => {
+    const baseModel = buildModel(base);
+    expect(baseModel.fixings.some((fixing) => fixing.kind === "anchor")).toBe(true);
+    expect(baseModel.fixings.some((fixing) => fixing.kind === "bolt")).toBe(true);
+    expect(baseModel.fixings.some((fixing) => fixing.kind === "tek-screw")).toBe(true);
+    const tighter = buildModel({ ...base, fixingSpacing: 0.3 });
+    expect(tighter.fixings.filter((fixing) => fixing.kind === "tek-screw").length).toBeGreaterThan(
+      baseModel.fixings.filter((fixing) => fixing.kind === "tek-screw").length,
+    );
   });
 
   test("every brace lands on a perimeter edge, never in open ground", () => {

@@ -1,5 +1,6 @@
 import { useMemo } from "react";
-import type { Model, Vec2 } from "../../lib/model";
+import { componentVisible } from "../../lib/model";
+import type { ComponentVisibility, Model, Vec2 } from "../../lib/model";
 import { DimLine, polyPoints } from "../../lib/draw";
 import { mmNum } from "../../lib/utils";
 
@@ -38,6 +39,7 @@ export function PlanView({
   height,
   showSheets,
   showFrame,
+  visibility,
   pad = 72,
 }: {
   model: Model;
@@ -45,6 +47,7 @@ export function PlanView({
   height: number;
   showSheets: boolean;
   showFrame: boolean;
+  visibility?: Partial<ComponentVisibility>;
   pad?: number;
 }) {
   const t = usePlanTransform(model, width, height, pad);
@@ -71,61 +74,64 @@ export function PlanView({
       aria-label="Plan view of the structure"
     >
       {/* roof sheeting grid */}
-      {showSheets &&
+      {showSheets && componentVisible(visibility, "sheets") &&
         model.roofSheets.map((s) => {
           const pts = s.poly.map((p) => S(p));
           return (
             <polygon
               key={s.id}
               points={polyPoints(pts)}
-              fill={s.full ? "#8ad7e3" : "#e0b05c"}
+              fill="#67cbe3"
               fillOpacity={s.full ? 0.13 : 0.18}
-              stroke={s.full ? "#8ad7e3" : "#e0b05c"}
-              strokeOpacity={0.45}
+              stroke="#67cbe3"
+              strokeOpacity={s.full ? 0.45 : 0.75}
               strokeWidth={0.8}
             />
           );
         })}
 
       {/* roof outline + overhang */}
-      <polygon
-        points={polyPoints([
-          S({ x: -d.roofOverhang, y: model.plan.bl.y - d.roofOverhang }),
-          S({ x: d.width + d.roofOverhang, y: model.plan.br.y - d.roofOverhang }),
-          S({
-            x: d.width + d.roofOverhang,
-            y: model.plan.fr.y + d.roofOverhang,
-          }),
-          S({ x: -d.roofOverhang, y: model.plan.fl.y + d.roofOverhang }),
-        ])}
-        fill="none"
-        stroke="var(--color-canopy-400)"
-        strokeOpacity={0.28}
-        strokeWidth={1}
-        strokeDasharray="3 3"
-      />
+      {componentVisible(visibility, "sheets") && (
+        <polygon
+          points={polyPoints([
+            S({ x: -d.roofOverhang, y: model.plan.bl.y - d.roofOverhang }),
+            S({ x: d.width + d.roofOverhang, y: model.plan.br.y - d.roofOverhang }),
+            S({ x: d.width + d.roofOverhang, y: model.plan.fr.y + d.roofOverhang }),
+            S({ x: -d.roofOverhang, y: model.plan.fl.y + d.roofOverhang }),
+          ])}
+          fill="none"
+          stroke="#67cbe3"
+          strokeOpacity={0.52}
+          strokeWidth={1.2}
+          strokeDasharray="3 3"
+        />
+      )}
 
       {/* C purlin perimeter ring */}
-      <polygon
-        points={polyPoints(innerOutline)}
-        fill="none"
-        stroke="var(--color-canopy-400)"
-        strokeOpacity={0.5}
-        strokeWidth={d.ringBuildFrontBack === "double" ? 4 : 2.5}
-        strokeLinejoin="round"
-      />
-      <polygon
-        points={polyPoints(outline)}
-        fill="none"
-        stroke="var(--color-canopy-500)"
-        strokeOpacity={0.75}
-        strokeWidth={1.4}
-      />
+      {componentVisible(visibility, "c-purlins") && (
+        <>
+          <polygon
+            points={polyPoints(innerOutline)}
+            fill="none"
+            stroke="#49c2a7"
+            strokeOpacity={0.72}
+            strokeWidth={d.ringBuildFrontBack === "double" ? 4 : 2.5}
+            strokeLinejoin="round"
+          />
+          <polygon
+            points={polyPoints(outline)}
+            fill="none"
+            stroke="#49c2a7"
+            strokeOpacity={0.38}
+            strokeWidth={1.4}
+          />
+        </>
+      )}
 
       {showFrame && (
         <>
           {/* roof Z purlins, left to right */}
-          {model.members
+          {componentVisible(visibility, "z-purlins") && model.members
             .filter((m) => m.kind === "purlin")
             .map((m) => {
               const a = S({ x: m.a.x, y: m.a.y });
@@ -137,15 +143,15 @@ export function PlanView({
                   y1={a.y}
                   x2={b.x}
                   y2={b.y}
-                  stroke="var(--color-canopy-300)"
-                  strokeOpacity={0.32}
+                  stroke="#e4a747"
+                  strokeOpacity={0.78}
                   strokeWidth={1}
                   strokeDasharray="8 4"
                 />
               );
             })}
           {/* primary Z girders, back to front */}
-          {model.members
+          {componentVisible(visibility, "z-purlins") && model.members
             .filter((m) => m.kind === "girder")
             .map((m) => (
               <line
@@ -154,14 +160,14 @@ export function PlanView({
                 y1={sy(m.a.y)}
                 x2={sx(m.b.x)}
                 y2={sy(m.b.y)}
-                stroke="var(--color-canopy-200)"
+                stroke="#e4a747"
                 strokeOpacity={0.8}
                 strokeWidth={3}
                 strokeLinecap="round"
               />
             ))}
           {/* level C-purlin perimeter, with the door-running front/right lengths highlighted */}
-          {model.members
+          {componentVisible(visibility, "c-purlins") && model.members
             .filter((m) => m.kind === "level-ring")
             .map((m) => {
               const a = S({ x: m.a.x, y: m.a.y });
@@ -173,7 +179,7 @@ export function PlanView({
                     y1={a.y}
                     x2={b.x}
                     y2={b.y}
-                    stroke="var(--color-brass-400)"
+                    stroke="#49c2a7"
                     strokeWidth={3.4}
                     strokeLinecap="round"
                   />
@@ -182,7 +188,7 @@ export function PlanView({
                     y1={a.y}
                     x2={b.x}
                     y2={b.y}
-                    stroke="var(--color-brass-300)"
+                    stroke="#a2eadb"
                     strokeWidth={3.4}
                     strokeLinecap="round"
                     strokeDasharray="2 9"
@@ -191,7 +197,7 @@ export function PlanView({
               );
             })}
           {/* wall studs on the two glazed runs */}
-          {model.members
+          {componentVisible(visibility, "wall-framing") && model.members
             .filter((m) => m.kind === "stud")
             .map((m) => {
               const p = S({ x: m.a.x, y: m.a.y });
@@ -204,11 +210,11 @@ export function PlanView({
                     cy={p.y}
                     r={3.2}
                     fill="var(--color-slate-bark-900)"
-                    stroke="var(--color-canopy-300)"
+                    stroke="#99bd70"
                     strokeWidth={1.4}
                   />
                   {(onFront || onRight) && (
-                    <circle cx={p.x} cy={p.y} r={1.2} fill="var(--color-canopy-300)" />
+                    <circle cx={p.x} cy={p.y} r={1.2} fill="#99bd70" />
                   )}
                 </g>
               );
@@ -216,8 +222,15 @@ export function PlanView({
         </>
       )}
 
+      {/* knee brace footprints */}
+      {componentVisible(visibility, "braces") && model.members.filter((m) => m.kind === "brace").map((member) => {
+        const a = S({ x: member.a.x, y: member.a.y });
+        const b = S({ x: member.b.x, y: member.b.y });
+        return <line key={member.id} x1={a.x} y1={a.y} x2={b.x} y2={b.y} stroke="#80aee0" strokeWidth={4} strokeLinecap="round" />;
+      })}
+
       {/* posts */}
-      {model.posts.map((p) => {
+      {componentVisible(visibility, "posts") && model.posts.map((p) => {
         const c = S(p.at);
         const s = (d.postSize / 1000) * t.scale;
         return (
@@ -227,15 +240,23 @@ export function PlanView({
             y={c.y - s / 2}
             width={s}
             height={s}
-            fill="var(--color-slate-bark-950)"
-            stroke="#cfe3d8"
+            fill="#8494a5"
+            stroke="#dce5ef"
             strokeWidth={1.8}
           />
         );
       })}
 
+      {/* fixing heads */}
+      {componentVisible(visibility, "fixings") && model.fixings
+        .filter((fixing) => fixing.kind !== "tek-screw")
+        .map((fixing) => {
+        const p = S(fixing.at);
+        return <g key={fixing.id}><circle cx={p.x} cy={p.y} r={2.8} fill="#ed806c" stroke="#fff0e9" strokeWidth={0.7} /><path d={`M ${p.x - 1.5} ${p.y} H ${p.x + 1.5}`} stroke="#563e37" strokeWidth={0.7} /></g>;
+      })}
+
       {/* corner fixing symbols */}
-      {model.corners.map((c) => {
+      {componentVisible(visibility, "fixings") && componentVisible(visibility, "c-purlins") && model.corners.map((c) => {
         const p = S(c.at);
         const col = c.ok ? (c.fix === "rigid90" ? "#8fd9ab" : "#e0b05c") : "#f87171";
         const off = 22;
@@ -331,7 +352,7 @@ export function PlanView({
       />
 
       {/* bay spacing callout */}
-      {showFrame && model.posts.length > 4 && (
+      {componentVisible(visibility, "posts") && showFrame && model.posts.length > 4 && (
         <text
           x={sx(d.width / 2)}
           y={sy(model.plan.fl.y)}

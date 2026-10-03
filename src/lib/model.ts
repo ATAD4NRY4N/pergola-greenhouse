@@ -66,6 +66,8 @@ export interface Design {
   postCount: number; // total perimeter posts including four corners
   kneeBraces: boolean; // 45 deg braces into the ring rail
   kneeBraceLength: number; // m, horizontal projection
+  kneeBraceSize: number; // mm, brace channel depth
+  kneeBraceGauge: number; // mm, brace wall thickness
 
   /* C purlin perimeter ring */
   ringDepth: number; // mm
@@ -93,11 +95,17 @@ export interface Design {
 
   /* Sliding doors — leaf size is fixed at one 8x4 sheet, so only count and
      position are adjustable. Doors sit on the front and right runs. */
+  doorTrimDepth: number; // mm, U-channel return depth around the leaf edges
+  doorTrimGauge: number; // mm, U-channel wall thickness
+
   frontDoors: number; // number of leaves on the front run
   rightDoors: number; // number of leaves on the right run
   frontDoorOffset: number; // m in from the front-left corner
   rightDoorOffset: number; // m back from the front-right corner
   doorOpen: number; // 0..1 — display only
+  aluminiumTrimSize: number; // mm, U-channel face width around the door leaves
+  fixingDiameter: number; // mm, illustrative tek screw / bolt head
+  fixingSpacing: number; // m centres for roof sheet fasteners
   glazeFront: boolean;
   glazeRight: boolean;
 
@@ -117,6 +125,8 @@ export const DEFAULT_DESIGN: Design = {
   postCount: 16,
   kneeBraces: true,
   kneeBraceLength: 0.9,
+  kneeBraceSize: 60,
+  kneeBraceGauge: 2,
   ringDepth: 100,
   ringGauge: 1.8,
   ringBuildFrontBack: "double",
@@ -136,6 +146,11 @@ export const DEFAULT_DESIGN: Design = {
   frontDoorOffset: 2.4,
   rightDoorOffset: 2.2,
   doorOpen: 0,
+  aluminiumTrimSize: 25,
+  doorTrimDepth: 18,
+  doorTrimGauge: 2,
+  fixingDiameter: 6,
+  fixingSpacing: 0.6,
   glazeFront: true,
   glazeRight: true,
   // Front corners are square, back corners are skewed by the offset.
@@ -163,6 +178,9 @@ export interface Member {
   b: Vec3;
   /** Cut length in metres, measured along the member. */
   length: number;
+  /** Optional section axes for edge trim: mouth direction and sheet normal. */
+  profileFacing?: Vec3;
+  profileNormal?: Vec3;
   label?: string;
 }
 
@@ -185,6 +203,74 @@ export interface Panel {
   poly: Vec3[];
   opacity: number;
   label?: string;
+}
+
+export type ComponentCategory =
+  | "posts"
+  | "c-purlins"
+  | "z-purlins"
+  | "braces"
+  | "wall-framing"
+  | "sheets"
+  | "aluminium-trim"
+  | "fixings";
+
+export const COMPONENT_CATEGORIES: {
+  id: ComponentCategory;
+  label: string;
+  color: string;
+}[] = [
+  { id: "posts", label: "SHS posts", color: "#c9d5e2" },
+  { id: "c-purlins", label: "C-purlins", color: "#49c2a7" },
+  { id: "z-purlins", label: "Z-purlins & girders", color: "#e4a747" },
+  { id: "braces", label: "Knee braces", color: "#80aee0" },
+  { id: "wall-framing", label: "Wall framing", color: "#99bd70" },
+  { id: "sheets", label: "Polycarbonate", color: "#67cbe3" },
+  { id: "aluminium-trim", label: "Aluminium trim", color: "#f1c877" },
+  { id: "fixings", label: "Fixings & hardware", color: "#ed806c" },
+];
+
+export type FixingKind = "anchor" | "bolt" | "tek-screw";
+
+export interface Fixing {
+  id: string;
+  kind: FixingKind;
+  at: Vec3;
+  diameter: number; // metres, illustrative head size
+}
+
+export type ComponentVisibility = Record<ComponentCategory, boolean>;
+
+export const DEFAULT_COMPONENT_VISIBILITY: ComponentVisibility = {
+  posts: true,
+  "c-purlins": true,
+  "z-purlins": true,
+  braces: true,
+  "wall-framing": true,
+  sheets: true,
+  "aluminium-trim": true,
+  fixings: true,
+};
+
+export function memberComponent(kind: MemberKind): ComponentCategory {
+  if (kind === "post") return "posts";
+  if (kind === "ring" || kind === "ring-heavy" || kind === "level-ring") return "c-purlins";
+  if (kind === "girder" || kind === "purlin") return "z-purlins";
+  if (kind === "brace") return "braces";
+  if (kind === "stud" || kind === "sill") return "wall-framing";
+  if (kind === "doorframe") return "aluminium-trim";
+  return "fixings";
+}
+
+export function panelComponent(_kind: Panel["kind"]): ComponentCategory {
+  return "sheets";
+}
+
+export function componentVisible(
+  visibility: Partial<ComponentVisibility> | undefined,
+  category: ComponentCategory,
+): boolean {
+  return visibility?.[category] ?? true;
 }
 
 export interface PostNode {
@@ -289,6 +375,7 @@ export interface Model {
   posts: PostNode[];
   members: Member[];
   panels: Panel[];
+  fixings: Fixing[];
   roofSheets: SheetCell[];
   wallBays: WallBay[];
   doors: DoorLeaf[];
@@ -925,11 +1012,21 @@ export function buildModel(input: Design): Model {
         { x: p1.x, y: p1.y, z: leafTop(e) },
         { x: p0.x, y: p0.y, z: leafTop(s) },
       ];
-      /* `poly` is the leaf closed, and runStart/runEnd are its closed
-         position along the run. When it slides it travels this far and no
-         further, which is why the track has to be as long as it is. */
-      const slideDir = spec.side === "front" ? -1 : 1;
-      const park = i * (leafW + gap);
+      /* `poly` is the closed leaf. Single leaves park into a clear adjacent
+         bay; paired leaves retain their existing overlap/stack behavior. */
+      const preferredSlideDir: 1 | -1 = spec.side === "front" ? -1 : 1;
+      const availableBefore = Math.max(0, s);
+      const availableAfter = Math.max(0, spec.runLen - e);
+      const preferredClearance = preferredSlideDir === -1 ? availableBefore : availableAfter;
+      const alternateClearance = preferredSlideDir === -1 ? availableAfter : availableBefore;
+      const slideDir: 1 | -1 = spec.leaves === 1 && preferredClearance < leafW && alternateClearance > preferredClearance
+        ? preferredSlideDir === -1 ? 1 : -1
+        : preferredSlideDir;
+      // A single leaf parks one sheet-width into the adjacent clear bay;
+      // paired leaves stack onto the first leaf as before.
+      const park = spec.leaves === 1
+        ? Math.min(leafW + gap, slideDir === -1 ? availableBefore : availableAfter)
+        : i * (leafW + gap);
       const q0 = spec.toWorld(s + park * slideDir);
       const q1 = spec.toWorld(e + park * slideDir);
       const parkedStart = s + park * slideDir;
@@ -1003,18 +1100,85 @@ export function buildModel(input: Design): Model {
         [poly[0], poly[3]],
         [poly[1], poly[2]],
       ];
+      const leafCentre = poly.reduce(
+        (sum, point) => ({ x: sum.x + point.x / 4, y: sum.y + point.y / 4, z: sum.z + point.z / 4 }),
+        { x: 0, y: 0, z: 0 },
+      );
+      const profileNormal = spec.side === "front" ? { x: 0, y: -1, z: 0 } : { x: -1, y: 0, z: 0 };
       for (const [a, b] of edges) {
+        const midpoint = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2, z: (a.z + b.z) / 2 };
+        const inward = { x: leafCentre.x - midpoint.x, y: leafCentre.y - midpoint.y, z: leafCentre.z - midpoint.z };
+        const tangent = { x: b.x - a.x, y: b.y - a.y, z: b.z - a.z };
+        const mouth = {
+          x: tangent.y * profileNormal.z - tangent.z * profileNormal.y,
+          y: tangent.z * profileNormal.x - tangent.x * profileNormal.z,
+          z: tangent.x * profileNormal.y - tangent.y * profileNormal.x,
+        };
+        const mouthLength = Math.hypot(mouth.x, mouth.y, mouth.z) || 1;
+        const facing = { x: mouth.x / mouthLength, y: mouth.y / mouthLength, z: mouth.z / mouthLength };
+        const facingDot = facing.x * inward.x + facing.y * inward.y + facing.z * inward.z;
         members.push({
           id: mid_(),
           kind: "doorframe",
           a,
           b,
           length: dist3(a, b),
-          label: "casing",
+          profileFacing: facingDot < 0 ? { x: -facing.x, y: -facing.y, z: -facing.z } : facing,
+          profileNormal,
+          label: `aluminium U-channel door trim ${d.aluminiumTrimSize}×${d.doorTrimDepth}×${d.doorTrimGauge} mm`,
         });
       }
     }
 
+  }
+
+  /* ---------------- Illustrative connection and sheet fixings -------- */
+
+  const fixings: Fixing[] = [];
+  const fixingDiameter = Math.max(3, d.fixingDiameter) / 1000;
+  for (const post of posts) {
+    for (const [dx, dy] of [[-1, -1], [1, -1], [1, 1], [-1, 1]] as const) {
+      fixings.push({
+        id: `anchor-${post.id}-${dx}-${dy}`,
+        kind: "anchor",
+        at: {
+          x: post.at.x + dx * d.postSize / 3000,
+          y: post.at.y + dy * d.postSize / 3000,
+          z: 0.025,
+        },
+        diameter: fixingDiameter * 1.5,
+      });
+    }
+    for (const railZ of [ringZ(post.at.x), levelRailZ]) {
+      for (const side of [-1, 1] as const) {
+        fixings.push({
+          id: `bolt-${post.id}-${railZ}-${side}`,
+          kind: "bolt",
+          at: {
+            x: post.at.x + side * d.postSize / 2500,
+            y: post.at.y,
+            z: railZ,
+          },
+          diameter: fixingDiameter * 1.6,
+        });
+      }
+    }
+  }
+  for (const purlin of purlins) {
+    const stations = Math.max(1, Math.floor(purlin.length / Math.max(0.2, d.fixingSpacing)));
+    for (let i = 0; i <= stations; i++) {
+      const t = (i + 0.5) / (stations + 1);
+      fixings.push({
+        id: `tek-${purlin.id}-${i}`,
+        kind: "tek-screw",
+        at: {
+          x: purlin.a.x + (purlin.b.x - purlin.a.x) * t,
+          y: purlin.a.y + (purlin.b.y - purlin.a.y) * t,
+          z: purlin.a.z + (purlin.b.z - purlin.a.z) * t + d.roofPurlinDepth / 2000,
+        },
+        diameter: fixingDiameter,
+      });
+    }
   }
 
   /* ---------------- Corner fixings ---------------------------------- */
@@ -1179,7 +1343,7 @@ export function buildModel(input: Design): Model {
     id: "braces",
     group: "Steel",
     item: "Knee braces",
-    spec: `C${Math.max(50, Math.round(d.ringDepth * 0.6))}\u00d7${Math.max(50, Math.round(d.ringDepth * 0.6))} mm, 45\u00b0`,
+    spec: `C${d.kneeBraceSize}\u00d7${d.kneeBraceSize}\u00d7${d.kneeBraceGauge} mm, 45\u00b0`,
     qty: braceCount,
     unit: "no.",
     lengthMm: Math.ceil(Math.hypot(braceLen, braceLen) * 1000),
@@ -1225,12 +1389,12 @@ export function buildModel(input: Design): Model {
   cutList.push({
     id: "casing",
     group: "Doors",
-    item: "Door casing / trim",
-    spec: `25\u00d725 mm aluminium box, mitred`,
+    item: "Door U-channel trim",
+    spec: `${d.aluminiumTrimSize}×${d.doorTrimDepth}×${d.doorTrimGauge} mm aluminium U-channel, mitred`,
     qty: sheetCount,
     unit: "sets",
     totalM: sheetCount * 2 * (DOOR_LEAF_W + DOOR_LEAF_H),
-    note: "Four sticks per leaf plus a mid rail if the leaf is two sheets tall.",
+    note: "Four U-channel lengths per leaf; channel wraps sheet edges with the opening turned inward.",
   });
 
   const roofFull = roofSheets.filter((s) => s.full).length;
@@ -1443,6 +1607,7 @@ export function buildModel(input: Design): Model {
     posts,
     members,
     panels,
+    fixings,
     roofSheets,
     wallBays,
     doors,
