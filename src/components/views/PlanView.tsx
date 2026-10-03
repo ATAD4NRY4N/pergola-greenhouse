@@ -160,9 +160,9 @@ export function PlanView({
                 strokeLinecap="round"
               />
             ))}
-          {/* door tracks + slide direction */}
+          {/* Level C-purlin perimeter, also carrying front/right door trolleys */}
           {model.members
-            .filter((m) => m.kind === "track" && m.label === "track C purlin")
+            .filter((m) => m.kind === "level-ring")
             .map((m) => {
               const a = S({ x: m.a.x, y: m.a.y });
               const b = S({ x: m.b.x, y: m.b.y });

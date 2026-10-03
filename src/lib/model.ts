@@ -30,10 +30,16 @@ export const SHEET_SHORT = 1.219; // 4 ft
 export const DOOR_LEAF_W = SHEET_SHORT;
 export const DOOR_LEAF_H = SHEET_LONG;
 
-/** Drop rod between the perimeter ring and the door track C purlin, metres. */
+/** Clearance below the level perimeter channel for the door leaf, metres. */
 export const TRACK_DROP = 0.12;
 /** Track wheel diameter, metres. */
 export const WHEEL_DIA = 0.05;
+/** Width of the open-bottom C-channel used as the door rail, metres. */
+export const TRACK_WIDTH = 0.06;
+/** Inward return lip on the door channel, metres. */
+export const TRACK_LIP = 0.015;
+/** Distance between trolley wheel axles along the rail, metres. */
+export const TROLLEY_AXLE_SPACING = 0.14;
 /** Clearance between the track underside and the top of the leaf, metres. */
 export const LEAF_GAP = 0.02;
 
@@ -158,6 +164,7 @@ export type MemberKind =
   | "post"
   | "ring"
   | "ring-heavy"
+  | "level-ring"
   | "stud"
   | "sill"
   | "girder"
@@ -181,6 +188,16 @@ export interface PostNode {
   corner: CornerId | null;
 }
 
+export interface DoorTrolley {
+  id: string;
+  /** Four wheel centres captured inside the level C-channel. */
+  wheelCentres: Vec3[];
+  /** Wheel centres after the door has parked fully open. */
+  parkedWheelCentres: Vec3[];
+  hanger: Member;
+  parkedHanger: Member;
+}
+
 export interface DoorLeaf {
   id: string;
   side: "front" | "right";
@@ -195,8 +212,10 @@ export interface DoorLeaf {
   parkedPoly: Vec3[];
   width: number;
   height: number;
-  /** Height of the wheel axle, riding on the track C purlin flange. */
-  wheelCentre: number;
+  /** The level perimeter member that directly carries this door's trolleys. */
+  supportMemberId: string;
+  /** Two four-wheel carriages support each leaf. */
+  trolleys: DoorTrolley[];
 }
 
 export interface WallBay {
@@ -557,6 +576,33 @@ export function buildModel(input: Design): Model {
     });
   }
 
+  /* ---------------- Level C-purlin perimeter / door rail ------------ */
+
+  const levelRailDepth = Math.max(0.05, ringD);
+  // A single horizontal perimeter elevation clears a full-height door at the
+  // low eave. Each run is fixed directly to the perimeter posts.
+  const levelRailZ = Math.min(zL, zR) - ringD - TRACK_DROP - levelRailDepth / 2;
+  const perimeterRails = ringRuns.map((run) => {
+    const a = plan[run.a];
+    const b = plan[run.b];
+    const length = Math.hypot(b.x - a.x, b.y - a.y);
+    const rail: Member = {
+      id: mid_(),
+      kind: "level-ring",
+      a: { x: a.x, y: a.y, z: levelRailZ },
+      b: { x: b.x, y: b.y, z: levelRailZ },
+      length,
+      label: `level C-purlin perimeter · ${run.id}`,
+    };
+    members.push(rail);
+    return rail;
+  });
+  const perimeterRailLength = perimeterRails.reduce((sum, rail) => sum + rail.length, 0);
+  const doorRailBySide = new Map(ringRuns.map((run, index) => [run.id, perimeterRails[index]]));
+  const trackLength =
+    (d.frontDoors > 0 ? perimeterRails.find((rail) => rail.label?.endsWith("front"))?.length ?? 0 : 0) +
+    (d.rightDoors > 0 ? perimeterRails.find((rail) => rail.label?.endsWith("right"))?.length ?? 0 : 0);
+
   /* ---------------- Roof frame: Z girders + Z purlins --------------- */
 
   // Primary Z girders run front -> back and land on the front & back ring
@@ -691,20 +737,12 @@ export function buildModel(input: Design): Model {
     const leafW = DOOR_LEAF_W;
     const leafH = DOOR_LEAF_H;
     const gap = 0.02;
-    const trackD = Math.max(0.05, d.ringDepth / 1000);
+    const trackD = levelRailDepth;
+    const supportRail = doorRailBySide.get(spec.side)!;
 
-    /* Vertical stack, barn-door style, measured down from the perimeter ring:
-
-         perimeter ring rail   (underside)
-           |  drop rod, TRACK_DROP
-         door track C purlin   (top face ... underside)  <- the wheels run here
-           |  wheel, WHEEL_DIA
-         door leaf             (top ... bottom), one whole 8x4 sheet
-    */
-    const ringUnder = (t: number) =>
-      spec.topAt(spec.toWorld(t).x) - d.ringDepth / 1000;
-    const trackTop = (t: number) => ringUnder(t) - TRACK_DROP;
-    const trackBottom = (t: number) => trackTop(t) - trackD;
+    // Doors run directly in the front/right members of the level perimeter;
+    // no drop rods or sloped roof-ring geometry participate in this stack.
+    const trackBottom = (_t: number) => supportRail.a.z - trackD / 2;
     const leafTop = (t: number) => trackBottom(t) - LEAF_GAP;
     const leafBottom = (t: number) => leafTop(t) - leafH;
     /** Walls and studs stop under the leaf. */
@@ -792,28 +830,67 @@ export function buildModel(input: Design): Model {
       const [s, e] = openings[i];
       const p0 = spec.toWorld(s);
       const p1 = spec.toWorld(e);
-      const bottom = leafBottom(s);
-      const top = leafTop(s);
       const poly: Vec3[] = [
-        { x: p0.x, y: p0.y, z: bottom },
-        { x: p1.x, y: p1.y, z: bottom },
-        { x: p1.x, y: p1.y, z: top },
-        { x: p0.x, y: p0.y, z: top },
+        { x: p0.x, y: p0.y, z: leafBottom(s) },
+        { x: p1.x, y: p1.y, z: leafBottom(e) },
+        { x: p1.x, y: p1.y, z: leafTop(e) },
+        { x: p0.x, y: p0.y, z: leafTop(s) },
       ];
       /* `poly` is the leaf closed, and runStart/runEnd are its closed
          position along the run. When it slides it travels this far and no
          further, which is why the track has to be as long as it is. */
       const slideDir = spec.side === "front" ? -1 : 1;
       const park = i * (leafW + gap);
-      const q0 = spec.toWorld(s + park * slideDir);
-      const q1 = spec.toWorld(e + park * slideDir);
-      const qTop = leafTop(s + park * slideDir);
+      const parkedStart = s + park * slideDir;
+      const parkedEnd = e + park * slideDir;
+      const q0 = spec.toWorld(parkedStart);
+      const q1 = spec.toWorld(parkedEnd);
       const parkedPoly: Vec3[] = [
-        { x: q0.x, y: q0.y, z: qTop - leafH },
-        { x: q1.x, y: q1.y, z: qTop - leafH },
-        { x: q1.x, y: q1.y, z: qTop },
-        { x: q0.x, y: q0.y, z: qTop },
+        { x: q0.x, y: q0.y, z: leafBottom(parkedStart) },
+        { x: q1.x, y: q1.y, z: leafBottom(parkedEnd) },
+        { x: q1.x, y: q1.y, z: leafTop(parkedEnd) },
+        { x: q0.x, y: q0.y, z: leafTop(parkedStart) },
       ];
+
+      const trolleyAssemblies = [0.22, 0.78].map((fraction, trolleyIndex) => {
+        const closedAt = s + leafW * fraction;
+        const parkedAt = parkedStart + leafW * fraction;
+        const wheelSet = (at: number): Vec3[] =>
+          [-TROLLEY_AXLE_SPACING / 2, TROLLEY_AXLE_SPACING / 2].flatMap((axial) => {
+            const centre = spec.toWorld(at + axial);
+            const ahead = spec.toWorld(at + axial + 0.01);
+            const tangentLength = Math.hypot(ahead.x - centre.x, ahead.y - centre.y) || 1;
+            const nx = (ahead.y - centre.y) / tangentLength;
+            const ny = -(ahead.x - centre.x) / tangentLength;
+            return [-TRACK_WIDTH / 4, TRACK_WIDTH / 4].map((lateral) => ({
+              x: centre.x + nx * lateral,
+              y: centre.y + ny * lateral,
+              z: trackBottom(at + axial) + WHEEL_DIA / 2,
+            }));
+          });
+        const hanger = (at: number): Member => {
+          const p = spec.toWorld(at);
+          const axleZ = trackBottom(at) + WHEEL_DIA / 2;
+          return {
+            id: `trolley-hanger-${spec.side}-${i}-${trolleyIndex}`,
+            kind: "track",
+            a: { ...p, z: leafTop(at) },
+            b: { ...p, z: axleZ },
+            length: axleZ - leafTop(at),
+            label: "four-wheel trolley hanger",
+          };
+        };
+        const closedHanger = hanger(closedAt);
+        const parkedHanger = hanger(parkedAt);
+        members.push(closedHanger);
+        return {
+          id: `trolley-${spec.side}-${i}-${trolleyIndex}`,
+          wheelCentres: wheelSet(closedAt),
+          parkedWheelCentres: wheelSet(parkedAt),
+          hanger: closedHanger,
+          parkedHanger,
+        };
+      });
 
       const leaf: DoorLeaf = {
         id: `door-${spec.side}-${i}`,
@@ -826,7 +903,8 @@ export function buildModel(input: Design): Model {
         parkedPoly,
         width: leafW,
         height: leafH,
-        wheelCentre: trackTop(s) + WHEEL_DIA / 2,
+        supportMemberId: supportRail.id,
+        trolleys: trolleyAssemblies,
       };
       doors.push(leaf);
       panels.push({ id: `dp-${spec.side}-${i}`, kind: "door", poly, opacity: 0.32 });
@@ -846,68 +924,6 @@ export function buildModel(input: Design): Model {
           b,
           length: dist3(a, b),
           label: "casing",
-        });
-      }
-      // Two hanger straps, each carrying a wheel on the track flange.
-      for (const f of [0.22, 0.78]) {
-        const p = {
-          x: p0.x + (p1.x - p0.x) * f,
-          y: p0.y + (p1.y - p0.y) * f,
-        };
-        const zTop = trackTop(s) + WHEEL_DIA / 2;
-        members.push({
-          id: mid_(),
-          kind: "track",
-          a: { ...p, z: top },
-          b: { ...p, z: zTop },
-          length: zTop - top,
-          label: "wheel hanger",
-        });
-      }
-    }
-
-    // --- door track C purlin, hung off the ring on drop rods ---------
-    // The track has to be long enough for every leaf in every position, so
-    // it spans the union of where they sit closed and where they park.
-    if (spec.leaves > 0) {
-      const slideDir = spec.side === "front" ? -1 : 1;
-      const reach: number[] = [];
-      for (let i = 0; i < spec.leaves; i++) {
-        const [s, e] = openings[i];
-        const park = i * (leafW + gap) * slideDir;
-        // Both where it sits shut and where it ends up when open.
-        reach.push(s, e, s + park, e + park);
-      }
-      const trackFrom = Math.max(0, Math.min(...reach) - 0.12);
-      const trackTo = Math.min(spec.runLen, Math.max(...reach) + 0.12);
-      const pa = spec.toWorld(trackFrom);
-      const pb = spec.toWorld(trackTo);
-      const za = trackTop(trackFrom) - trackD / 2;
-      const zb = trackTop(trackTo) - trackD / 2;
-      members.push({
-        id: mid_(),
-        kind: "track",
-        a: { x: pa.x, y: pa.y, z: za },
-        b: { x: pb.x, y: pb.y, z: zb },
-        length: dist3({ x: pa.x, y: pa.y, z: za }, { x: pb.x, y: pb.y, z: zb }),
-        label: "track C purlin",
-      });
-
-      // Drop rods at the jambs and midway, down from the ring underside.
-      const rodAt = [trackFrom, ...studs, trackTo]
-        .filter((t) => t >= trackFrom - 1e-6 && t <= trackTo + 1e-6)
-        .filter((t, i, arr) => arr.indexOf(t) === i);
-      for (const t of rodAt) {
-        const p = spec.toWorld(t);
-        const zTop = ringUnder(t);
-        const zBot = trackTop(t);
-        members.push({
-          id: mid_(),
-          kind: "track",
-          a: { x: p.x, y: p.y, z: zTop },
-          b: { x: p.x, y: p.y, z: zBot },
-          length: zTop - zBot,
-          label: "drop rod",
         });
       }
     }
@@ -992,6 +1008,23 @@ export function buildModel(input: Design): Model {
     unit: "no.",
     note: "One per post, set on an 18 mm level peg in a concrete pad.",
   });
+
+  for (const rail of perimeterRails) {
+    const run = rail.label?.split("· ")[1] ?? "perimeter";
+    cutList.push({
+      id: `level-rail-${run}`,
+      group: "Steel",
+      item: `Level perimeter C-purlin — ${run} run`,
+      spec: `C${d.ringDepth}\u00d7${d.ringGauge} mm`,
+      qty: 1,
+      unit: "length",
+      lengthMm: Math.ceil(rail.length * 1000),
+      totalM: rail.length,
+      note: run === "front" || run === "right"
+        ? "Level run fixed to perimeter posts; this channel carries door trolleys."
+        : "Level run fixed directly to perimeter posts.",
+    });
+  }
 
   for (const r of ringInfo) {
     cutList.push({
@@ -1085,36 +1118,23 @@ export function buildModel(input: Design): Model {
   });
 
   cutList.push({
-    id: "track",
-    group: "Doors",
-    item: "Door track C purlin",
-    spec: `C${d.ringDepth}\u00d7${d.ringGauge} mm`,
-    qty: 2,
-    unit: "lengths",
-    lengthMm: Math.ceil((W + dL) * 500),
-    note:
-      "Horizontal, hung under the ring rail on threaded drop rods. The wheels " +
-      "run on its top flange and the leaf hangs below \u2014 a barn door.",
-  });
-
-  cutList.push({
-    id: "droprods",
-    group: "Doors",
-    item: "Track drop rods",
-    spec: "M10 threaded rod + eye bolts",
-    qty: members.filter((m) => m.label === "drop rod").length,
+    id: "door-rail-cleats",
+    group: "Fixings",
+    item: "Level perimeter C-purlin post cleats",
+    spec: "Bolted C-purlin-to-SHS connections",
+    qty: posts.length,
     unit: "no.",
-    note: `TRACK_DROP = ${(TRACK_DROP * 1000).toFixed(0)} mm below the ring underside.`,
+    note: "One support at each perimeter post; level rails are carried by posts, not roof purlins.",
   });
 
   cutList.push({
     id: "wheels",
     group: "Doors",
-    item: "Track wheels & hanger straps",
-    spec: `${(WHEEL_DIA * 1000).toFixed(0)} mm wheel, 2 per leaf`,
+    item: "Four-wheel bearing trolley assemblies",
+    spec: `${(WHEEL_DIA * 1000).toFixed(0)} mm rollers; 2 carriages × 4 rollers per leaf`,
     qty: sheetCount * 2,
-    unit: "no.",
-    note: "Use a polycarb-safe wheel with a nylon or stainless tyre.",
+    unit: "assemblies",
+    note: "Eight rollers per leaf. Select a trolley/channel pairing rated for the door weight and confirm fit with the supplier.",
   });
 
   cutList.push({
@@ -1250,23 +1270,20 @@ export function buildModel(input: Design): Model {
     }
   }
 
-  // A leaf hangs from the track C purlin, which itself hangs off the ring, so
-  // the low eave has to clear: ring + drop rod + track + gap + one 8x4 sheet.
-  const trackD = Math.max(0.05, d.ringDepth / 1000);
-  const stackBelowRing = TRACK_DROP + trackD + LEAF_GAP + DOOR_LEAF_H;
-  const ringUnderLow = Math.min(zL, zR) - d.ringDepth / 1000;
-  const doorSill = ringUnderLow - stackBelowRing;
-  if (doorSill < 0) {
+  // The level rail sits below the low eave ring; leaves clear its underside
+  // by LEAF_GAP and then continue down by one full 8x4 sheet.
+  const stackBelowLowEave = ringD + TRACK_DROP + levelRailDepth + LEAF_GAP + DOOR_LEAF_H;
+  const doorSill = Math.min(zL, zR) - stackBelowLowEave;
+  if (doorLeafCount > 0 && doorSill < 0) {
     warnings.push({
       level: "error",
       title: "The doors do not clear the floor at the low end",
       detail:
-        `A whole 2438 mm sheet hanging off a C${d.ringDepth} track needs ` +
-        `${stackBelowRing.toFixed(2)} m below the ring underside, and the low end ` +
-        `only has ${ringUnderLow.toFixed(2)} m. Raise the low eave by ` +
+        `A whole 2438 mm sheet below the level perimeter C-purlin needs ` +
+        `${stackBelowLowEave.toFixed(2)} m below the low eave. Raise the low eave by ` +
         `${Math.ceil(-doorSill * 1000)} mm or more.`,
     });
-  } else if (doorSill < 0.075) {
+  } else if (doorLeafCount > 0 && doorSill < 0.075) {
     warnings.push({
       level: "warn",
       title: `Doors only clear the floor by ${Math.round(doorSill * 1000)} mm`,
@@ -1319,16 +1336,13 @@ export function buildModel(input: Design): Model {
       .reduce((a, b) => a + b.width * b.height, 0) / 1000;
 
   const steelKg =
-    cSteelKgPerM(d.ringDepth, d.ringGauge) * ringInfo.reduce((a, r) => a + r.len * (r.build === "double" ? 2 : 1), 0) +
     cSteelKgPerM(d.ringDepth, d.ringGauge) *
-      (members.filter((m) => m.kind === "stud" || m.kind === "sill" || m.kind === "track").reduce((a, m) => a + m.length, 0)) +
+      (ringInfo.reduce((a, r) => a + r.len * (r.build === "double" ? 2 : 1), 0) + perimeterRailLength) +
+    cSteelKgPerM(d.ringDepth, d.ringGauge) *
+      (members.filter((m) => m.kind === "stud" || m.kind === "sill" || m.label === "four-wheel trolley hanger").reduce((a, m) => a + m.length, 0)) +
     zSteelKgPerM(d.roofPurlinDepth, d.roofPurlinGauge) *
       (purlins.reduce((a, m) => a + m.length, 0) + girders.reduce((a, m) => a + m.length, 0)) +
     shsKgPerM(d.postSize, d.postGauge) * posts.reduce((a, p) => a + p.height, 0);
-
-  const trackLength = members
-    .filter((m) => m.kind === "track" && m.label === "track C purlin")
-    .reduce((a, m) => a + m.length, 0);
 
   const stats: Model["stats"] = {
     planArea: polyArea(structureClip),
