@@ -7,7 +7,6 @@ import {
   SHEET_LONG,
   SHEET_SHORT,
   TRACK_DROP,
-  WHEEL_DIA,
 } from "../lib/model";
 
 const base = DEFAULT_DESIGN;
@@ -143,52 +142,72 @@ describe("doors", () => {
     }
   });
 
-  test("the leaf hangs below the track, which hangs below the ring", () => {
+  test("four level perimeter C-purlins carry the doors directly at one height", () => {
     const m = buildModel(base);
-    const track = m.members.filter(
-      (x) => x.kind === "track" && x.label === "track C purlin",
-    );
-    expect(track.length).toBe(2);
+    const rails = m.members.filter((member) => member.kind === "level-ring");
+    expect(rails).toHaveLength(4);
+    const heights = rails.flatMap((rail) => [rail.a.z, rail.b.z]);
+    expect(Math.max(...heights)).toBeCloseTo(Math.min(...heights), 8);
 
-    // The track sits below the ring underside at both of its own ends.
-    for (const t of track) {
-      for (const end of [t.a, t.b]) {
-        expect(end.z).toBeLessThan(m.eaveAt(end.x) - base.ringDepth / 1000);
-      }
+    for (const post of m.posts) {
+      const supported = rails.some((rail) => {
+        const dx = rail.b.x - rail.a.x;
+        const dy = rail.b.y - rail.a.y;
+        const lengthSquared = dx * dx + dy * dy;
+        const along = (post.at.x - rail.a.x) * dx + (post.at.y - rail.a.y) * dy;
+        const cross = dx * (post.at.y - rail.a.y) - dy * (post.at.x - rail.a.x);
+        return Math.abs(cross) < 1e-6 && along >= -1e-6 && along <= lengthSquared + 1e-6;
+      });
+      expect(supported).toBe(true);
     }
 
-    const trackD = Math.max(0.05, base.ringDepth / 1000);
+    const channelDepth = Math.max(0.05, base.ringDepth / 1000);
     for (const leaf of m.doors) {
-      const leafTop = leaf.poly[2].z;
-      const leafBottom = leaf.poly[0].z;
-      // Wheel rides on the track flange, above the leaf head.
-      expect(leaf.wheelCentre).toBeGreaterThan(leafTop);
-      // ...and exactly where the stack says it should be: the leaf hangs from
-      // the track underside, not its centreline.
-      expect(leaf.wheelCentre - leafTop).toBeCloseTo(
-        trackD + LEAF_GAP + WHEEL_DIA / 2,
-        6,
-      );
-      expect(leafTop).toBeLessThan(m.eaveAt(leaf.poly[2].x) - base.ringDepth / 1000);
-      expect(leafBottom).toBeGreaterThan(0.075);
-      expect(leafTop - leafBottom).toBeCloseTo(SHEET_LONG, 6);
+      const support = rails.find((rail) => rail.id === leaf.supportMemberId);
+      expect(support).toBeDefined();
+      expect(leaf.poly[0].z).toBeCloseTo(leaf.poly[1].z, 8);
+      expect(leaf.poly[2].z).toBeCloseTo(leaf.poly[3].z, 8);
+      expect(leaf.poly[2].z).toBeCloseTo(support!.a.z - channelDepth / 2 - LEAF_GAP, 8);
+      expect(leaf.poly[0].z).toBeGreaterThan(0.075);
+      expect(leaf.poly[2].z - leaf.poly[0].z).toBeCloseTo(SHEET_LONG, 6);
+      expect(leaf.trolleys).toHaveLength(2);
+      for (const trolley of leaf.trolleys) {
+        expect(trolley.wheelCentres).toHaveLength(4);
+        expect(trolley.hanger.label).toBe("four-wheel trolley hanger");
+        expect(trolley.hanger.length).toBeGreaterThan(0);
+        for (const wheel of trolley.wheelCentres) {
+          expect(wheel.z).toBeGreaterThan(support!.a.z - channelDepth / 2);
+        }
+      }
     }
   });
 
-  test("drop rods hang the track off the ring", () => {
+  test("level door rails are independent of roof geometry and have no drop rods", () => {
     const m = buildModel(base);
-    const rods = m.members.filter((x) => x.label === "drop rod");
-    expect(rods.length).toBeGreaterThan(0);
-    for (const r of rods) {
-      expect(r.length).toBeCloseTo(TRACK_DROP, 6);
-    }
+    const changedRoof = buildModel({ ...base, eaveRight: 4.1, roofPurlinSpacing: 0.35 });
+    const rails = m.members.filter((member) => member.kind === "level-ring");
+    const changedRails = changedRoof.members.filter((member) => member.kind === "level-ring");
+    expect(changedRails.map((rail) => [rail.a.z, rail.b.z])).toEqual(
+      rails.map((rail) => [rail.a.z, rail.b.z]),
+    );
+    expect(m.members.some((member) => member.label === "drop rod")).toBe(false);
+    expect(m.doors.every((leaf) => rails.some((rail) => rail.id === leaf.supportMemberId))).toBe(true);
+    expect(TRACK_DROP).toBeGreaterThan(0);
+  });
+
+  test("door rail length includes only front/right runs that carry doors", () => {
+    const frontOnly = buildModel({ ...base, rightDoors: 0 });
+    expect(frontOnly.stats.trackLength).toBeCloseTo(base.width, 6);
+    const noDoors = buildModel({ ...base, frontDoors: 0, rightDoors: 0 });
+    expect(noDoors.stats.trackLength).toBe(0);
+    expect(noDoors.warnings.some((warning) => warning.title.includes("doors do not clear the floor"))).toBe(false);
   });
 
   test("every leaf stays on its track, closed and fully open", () => {
     const m = buildModel(base);
     for (const side of ["front", "right"] as const) {
       const track = m.members.find(
-        (x) => x.kind === "track" && x.label === "track C purlin" && isOn(x, side),
+        (x) => x.kind === "level-ring" && x.label?.endsWith(side),
       );
       expect(track).toBeDefined();
       // Convert a world point to the along-run coordinate the doors use. The
@@ -207,8 +226,8 @@ describe("doors", () => {
         const parked = leaf.runStart + leaf.travel * leaf.slideDir;
         expect(Math.min(parked, parked + leaf.width)).toBeGreaterThanOrEqual(from - 1e-6);
         expect(Math.max(parked, parked + leaf.width)).toBeLessThanOrEqual(to + 1e-6);
-        // Still hanging below the ring where it ends up: the run falls, so a
-        // parked leaf sits at a different height to a closed one.
+        // The level rail holds the leaf at one height even when parked along
+        // the sloped front elevation.
         for (const corner of leaf.parkedPoly) {
           expect(corner.z).toBeLessThan(m.eaveAt(corner.x) - base.ringDepth / 1000);
           expect(corner.z).toBeGreaterThan(0.075);
@@ -221,17 +240,6 @@ describe("doors", () => {
       }
     }
 
-    // The two tracks meet at the front-left corner, so match on the midpoint
-      // rather than an endpoint.
-    function isOn(
-      x: { a: { x: number; y: number }; b: { x: number; y: number } },
-      side: "front" | "right",
-    ) {
-      const mx = (x.a.x + x.b.x) / 2;
-      const my = (x.a.y + x.b.y) / 2;
-      if (side === "right") return Math.abs(mx - base.width) < 1e-6;
-      return mx > 0.1 && Math.abs(my - m.depthAt(mx)) < 0.02;
-    }
   });
 
   test("a leaf that cannot clear the floor raises an error", () => {
@@ -241,11 +249,13 @@ describe("doors", () => {
     ).toBe(true);
   });
 
-  test("the default layout leaves a usable door gap", () => {
-    const ringUnder =
-      Math.min(base.eaveLeft, base.eaveRight) - base.ringDepth / 1000;
-    const stack = TRACK_DROP + base.ringDepth / 1000 + LEAF_GAP + SHEET_LONG;
-    expect(ringUnder - stack).toBeGreaterThan(0.075);
+  test("the level perimeter rail leaves usable clearance under a full sheet", () => {
+    const railUnderside =
+      Math.min(base.eaveLeft, base.eaveRight) -
+      base.ringDepth / 1000 - TRACK_DROP - base.ringDepth / 1000;
+    expect(railUnderside - LEAF_GAP - SHEET_LONG).toBeGreaterThan(0.075);
+    const m = buildModel(base);
+    expect(Math.min(...m.doors.map((leaf) => leaf.poly[0].z))).toBeGreaterThan(0.075);
   });
 
   test("knee braces are added at the posts and shorten the ring span", () => {
@@ -293,9 +303,13 @@ describe("doors", () => {
     }
   });
 
-  test("track length covers the parked leaves", () => {
+  test("cut list includes all four level rails and trolley assemblies", () => {
     const m = buildModel(base);
     expect(m.stats.trackLength).toBeGreaterThan(0);
+    expect(m.cutList.filter((item) => item.id.startsWith("level-rail-"))).toHaveLength(4);
+    expect(m.cutList.filter((item) => item.id.startsWith("level-rail-")).every((item) => item.qty === 1)).toBe(true);
+    expect(m.cutList.find((item) => item.id === "wheels")?.qty).toBe(m.doors.length * 2);
+    expect(m.cutList.some((item) => item.id === "droprods")).toBe(false);
   });
 });
 
