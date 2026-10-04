@@ -49,7 +49,7 @@ export function DoorDetailView({
           </g>
           <path d="M 150 610 H 280 M 150 610 l 12 -7 M 150 610 l 12 7 M 280 610 l -12 -7 M 280 610 l -12 7" fill="none" stroke="#f1c877" strokeWidth="2" />
           <text x="215" y="634" fill="#f2d08a" fontSize="11" textAnchor="middle" fontFamily="var(--font-mono)">TRACKED SLIDE · {(door.travel * design.doorOpen * 1000).toFixed(0)} / {(door.travel * 1000).toFixed(0)} mm</text>
-          <text x="215" y="655" fill="#819087" fontSize="10" textAnchor="middle" fontFamily="var(--font-mono)">2 captured trolley carriages · 8 rollers total</text>
+          <text x="215" y="655" fill="#819087" fontSize="10" textAnchor="middle" fontFamily="var(--font-mono)">2 schematic floor carriages · 8 rollers total</text>
           <path d="M 326 150 L 362 128 H 394" fill="none" stroke="#f1c877" strokeWidth="1.2" />
           <text x="354" y="119" fill="#f2d08a" fontSize="9" textAnchor="end" fontFamily="var(--font-mono)">U-CHANNEL EDGE</text>
         </>
@@ -58,16 +58,17 @@ export function DoorDetailView({
       )}
 
       <rect x="430" y="56" width="548" height="296" rx="10" fill="#111c18" stroke="#34443d" />
-      <text x="452" y="88" fill="#dce9e1" fontSize="13" letterSpacing="1.4" fontFamily="var(--font-mono)">02 / HANGER + TRACK · ENLARGED</text>
-      <text x="452" y="111" fill="#8b9b92" fontSize="10" fontFamily="var(--font-mono)">SECTION THROUGH OPEN-BOTTOM C-CHANNEL</text>
-      <path d="M 558 142 H 854 V 195 H 804 V 183 H 608 V 195 H 558 Z" fill="#1b5e52" stroke="#49c2a7" strokeWidth="4" />
-      <rect x="620" y="184" width="47" height="20" rx="4" fill="#d69e49" stroke="#ffe0a0" strokeWidth="2" />
-      <rect x="745" y="184" width="47" height="20" rx="4" fill="#d69e49" stroke="#ffe0a0" strokeWidth="2" />
-      {[630, 657, 755, 782].map((x) => <circle key={x} cx={x} cy="210" r="12" fill="#dce4e8" stroke="#56635c" strokeWidth="3" />)}
-      <path d="M 653 207 V 248 H 760 V 207" fill="none" stroke="#ed806c" strokeWidth="6" />
-      <rect x="621" y="248" width="170" height="26" fill="#8ad7e3" fillOpacity="0.32" stroke="#f1c877" strokeWidth="4" />
-      <text x="706" y="298" fill="#dce9e1" fontSize="10" textAnchor="middle" fontFamily="var(--font-mono)">HANGER PLATE → U-CHANNEL-CAPTURED 4-WHEEL TROLLEY</text>
-      <text x="706" y="322" fill="#84958b" fontSize="9" textAnchor="middle" fontFamily="var(--font-mono)">Illustrative fit only · confirm channel opening, axle spacing and rated hardware</text>
+      <text x="452" y="88" fill="#dce9e1" fontSize="13" letterSpacing="1.4" fontFamily="var(--font-mono)">02 / RECESSED FLOOR CHANNEL · SCHEMATIC</text>
+      <text x="452" y="111" fill="#8b9b92" fontSize="10" fontFamily="var(--font-mono)">FLOOR-LEVEL ROLLERS CARRY THE LEAF · NO OVERHEAD TROLLEY</text>
+      <path d="M 558 144 H 854 V 250 H 558 Z" fill="#17231e" stroke="#49c2a7" strokeWidth="4" />
+      <path d="M 592 165 V 229 H 820 V 165" fill="none" stroke="#6aa596" strokeWidth="3" strokeDasharray="7 5" />
+      <rect x="620" y="204" width="46" height="26" rx="5" fill="#d69e49" stroke="#ffe0a0" strokeWidth="2" />
+      <rect x="746" y="204" width="46" height="26" rx="5" fill="#d69e49" stroke="#ffe0a0" strokeWidth="2" />
+      {[630, 656, 756, 782].map((x) => <circle key={x} cx={x} cy="224" r="10" fill="#dce4e8" stroke="#56635c" strokeWidth="3" />)}
+      <path d="M 653 222 V 177 H 760 V 222" fill="none" stroke="#d69e49" strokeWidth="5" />
+      <rect x="621" y="142" width="170" height="28" fill="#8ad7e3" fillOpacity="0.32" stroke="#f1c877" strokeWidth="4" />
+      <text x="706" y="278" fill="#dce9e1" fontSize="10" textAnchor="middle" fontFamily="var(--font-mono)">FLOOR WHEELS + VERTICAL CARRIERS SUPPORT THE LEAF</text>
+      <text x="706" y="304" fill="#84958b" fontSize="9" textAnchor="middle" fontFamily="var(--font-mono)">Illustrative arrangement only · channel depth, drainage, rollers and seal overlap require confirmation</text>
 
       <rect x="430" y="370" width="548" height="306" rx="10" fill="#111c18" stroke="#34443d" />
       <text x="452" y="402" fill="#dce9e1" fontSize="13" letterSpacing="1.4" fontFamily="var(--font-mono)">03 / SHS-TO-PURLIN JUNCTION</text>

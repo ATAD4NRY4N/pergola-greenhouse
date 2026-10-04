@@ -25,23 +25,33 @@ export const SHEET_SHORT = 1.219; // 4 ft
 /**
  * A sliding door leaf is always exactly one 8x4 sheet stood on its side.
  * It is never two sheets and never a cut size — the whole point of hanging
- * it from a C purlin is that a whole sheet drops straight in.
+ * a floor-level roller carriage is that a whole sheet drops straight in.
  */
 export const DOOR_LEAF_W = SHEET_SHORT;
 export const DOOR_LEAF_H = SHEET_LONG;
 
-/** Clearance below the low roof-ring underside used to set the level door rail, metres. */
-export const TRACK_DROP = 0.12;
-/** Track wheel diameter, metres. */
+/** Illustrative floor-channel dimensions; confirm actual hardware before building. */
+export const FLOOR_TRACK_DEPTH = 0.06;
+export const FLOOR_TRACK_WIDTH = 0.12;
+/** Schematic 25 mm lap for brush-sealed leaves; confirm the seal and track system. */
+export const DOOR_OVERLAP = 0.025;
+export const DOOR_LANE_OFFSET = DOOR_OVERLAP / 2;
+/** Small illustrative clearance between the leaf and finished floor, metres. */
+export const DOOR_FLOOR_CLEARANCE = 0.005;
+/** Roller diameter and axle spacing for the illustrative floor carriages, metres. */
 export const WHEEL_DIA = 0.05;
-/** Longitudinal spacing between the two axle stations in a four-wheel trolley. */
 export const TROLLEY_AXLE_SPACING = 0.07;
-/** Clearance between the track underside and the top of the leaf, metres. */
-export const LEAF_GAP = 0.02;
-/** Illustrative C-channel width and lower-lip dimensions used for trolley placement. */
+/** C-channel proportions retained for rendering the separate structural perimeter members. */
 export const TRACK_WIDTH = 0.06;
 export const TRACK_LIP = 0.012;
-const TROLLEY_LATERAL_OFFSET = TRACK_WIDTH / 2 - TRACK_LIP / 2;
+const FLOOR_TRACK_BOTTOM = -FLOOR_TRACK_DEPTH;
+const FLOOR_TRACK_CENTRE = FLOOR_TRACK_BOTTOM + FLOOR_TRACK_DEPTH / 2;
+const FLOOR_WHEEL_CENTRE_Z = FLOOR_TRACK_BOTTOM + WHEEL_DIA / 2;
+const FLOOR_LEAF_BOTTOM = DOOR_FLOOR_CLEARANCE;
+const FLOOR_LEAF_TOP = FLOOR_LEAF_BOTTOM + DOOR_LEAF_H;
+const FLOOR_WHEEL_LATERAL_OFFSET = 0.025;
+export const FLOOR_WHEEL_LANES = [-FLOOR_WHEEL_LATERAL_OFFSET, FLOOR_WHEEL_LATERAL_OFFSET] as const;
+export const FLOOR_WHEEL_AXLE_OFFSETS = [-TROLLEY_AXLE_SPACING / 2, TROLLEY_AXLE_SPACING / 2] as const;
 
 export type CornerId = "bl" | "br" | "fl" | "fr";
 export type CornerFix = "rigid90" | "adjustable";
@@ -93,7 +103,7 @@ export interface Design {
   polyThickness: number; // mm
   roofOverhang: number; // m all round
 
-  /* Sliding doors — leaf size is fixed at one 8x4 sheet, so only count and
+  /* Sliding doors — each leaf is one fixed 8x4 sheet; only count and
      position are adjustable. Doors sit on the front and right runs. */
   doorTrimDepth: number; // mm, U-channel return depth around the leaf edges
   doorTrimGauge: number; // mm, U-channel wall thickness
@@ -151,7 +161,7 @@ export const DEFAULT_DESIGN: Design = {
   doorTrimGauge: 2,
   fixingDiameter: 6,
   fixingSpacing: 0.6,
-  glazeFront: true,
+  glazeFront: false,
   glazeRight: true,
   // Front corners are square, back corners are skewed by the offset.
   corners: { bl: "adjustable", br: "adjustable", fl: "rigid90", fr: "rigid90" },
@@ -189,6 +199,7 @@ export type MemberKind =
   | "ring"
   | "ring-heavy"
   | "level-ring"
+  | "floor-track"
   | "stud"
   | "sill"
   | "girder"
@@ -259,6 +270,7 @@ export function memberComponent(kind: MemberKind): ComponentCategory {
   if (kind === "brace") return "braces";
   if (kind === "stud" || kind === "sill") return "wall-framing";
   if (kind === "doorframe") return "aluminium-trim";
+  if (kind === "floor-track") return "c-purlins";
   return "fixings";
 }
 
@@ -280,14 +292,14 @@ export interface PostNode {
   corner: CornerId | null;
 }
 
-export interface DoorTrolley {
+export interface DoorRollerCarriage {
   id: string;
-  /** Four wheel centres captured inside the level C-channel. */
-  wheelCentres: Vec3[];
-  /** Wheel centres after the door has parked fully open. */
-  parkedWheelCentres: Vec3[];
-  hanger: Member;
-  parkedHanger: Member;
+  /** Four schematic roller centres inside the recessed floor channel. */
+  rollerCentres: Vec3[];
+  /** Roller centres after the door has parked fully open. */
+  parkedRollerCentres: Vec3[];
+  carrier: Member;
+  parkedCarrier: Member;
 }
 
 export interface DoorLeaf {
@@ -296,6 +308,8 @@ export interface DoorLeaf {
   /** Closed position of the leaf along the run, in metres from the corner. */
   runStart: number;
   runEnd: number;
+  /** Offset from the wall plane; alternating lanes let adjacent leaves lap. */
+  laneOffset: number;
   /** Direction the leaf travels when it opens, and how far it goes. */
   slideDir: 1 | -1;
   travel: number;
@@ -304,18 +318,10 @@ export interface DoorLeaf {
   parkedPoly: Vec3[];
   width: number;
   height: number;
-  /** Member id of the level perimeter C-purlin that supports this leaf. */
+  /** Member id of the recessed floor channel guiding this leaf. */
   supportMemberId: string;
-  /** Two trolley carriages, each with four rollers captured inside the C-channel. */
-  trolleys: DoorTrolley[];
-}
-
-export interface DoorTrolley {
-  id: string;
-  wheelCentres: Vec3[];
-  parkedWheelCentres: Vec3[];
-  hanger: Member;
-  parkedHanger: Member;
+  /** Two floor-level roller carriages per leaf (illustrative). */
+  carriages: DoorRollerCarriage[];
 }
 
 export interface WallBay {
@@ -726,12 +732,11 @@ export function buildModel(input: Design): Model {
     });
   }
 
-  /* ---------------- Level C-purlin perimeter / door rail ------------ */
+  /* ---------------- Level structural perimeter ties ----------------- */
 
   const levelRailDepth = Math.max(0.05, ringD);
-  // Set the channel from the low eave ring so the full-height leaves clear
-  // the floor there; the same member elevation continues around all sides.
-  const levelRailZ = Math.min(zL, zR) - ringD - TRACK_DROP - levelRailDepth / 2;
+  // These level perimeter ties are structural only; sliding leaves are floor-supported.
+  const levelRailZ = Math.min(zL, zR) - ringD - 0.17 - levelRailDepth / 2;
   const perimeterRails: Member[] = ringRuns.map((run) => {
     const a = plan[run.a];
     const b = plan[run.b];
@@ -748,13 +753,28 @@ export function buildModel(input: Design): Model {
     return rail;
   });
   const perimeterRailLength = perimeterRails.reduce((sum, rail) => sum + rail.length, 0);
-  const doorRailBySide = new Map(ringRuns.map((run, index) => [run.id, perimeterRails[index]]));
-  const trackLength = perimeterRails
-    .filter((rail) =>
-      (d.frontDoors > 0 && rail.label?.endsWith("front")) ||
-      (d.rightDoors > 0 && rail.label?.endsWith("right")),
-    )
-    .reduce((sum, rail) => sum + rail.length, 0);
+  const floorTracks: Member[] = [];
+  for (const side of ["front", "right"] as const) {
+    const doorsOnRun = side === "front" ? d.frontDoors : d.rightDoors;
+    if (doorsOnRun < 1) continue;
+    const length = side === "front" ? W : dR;
+    const floorTrack: Member = {
+      id: mid_(),
+      kind: "floor-track",
+      a: side === "front"
+        ? { x: 0, y: frontY, z: FLOOR_TRACK_CENTRE }
+        : { x: W, y: frontY, z: FLOOR_TRACK_CENTRE },
+      b: side === "front"
+        ? { x: W, y: frontY, z: FLOOR_TRACK_CENTRE }
+        : { x: W, y: frontY - dR, z: FLOOR_TRACK_CENTRE },
+      length,
+      label: `recessed double-lane floor channel · ${side}`,
+    };
+    floorTracks.push(floorTrack);
+    members.push(floorTrack);
+  }
+  const floorTrackBySide = new Map(floorTracks.map((track) => [track.label?.split("· ")[1], track]));
+  const trackLength = floorTracks.reduce((sum, track) => sum + track.length, 0);
 
   /* ---------------- Roof frame: Z girders + Z purlins --------------- */
 
@@ -895,7 +915,7 @@ export function buildModel(input: Design): Model {
     leaves: number;
     offset: number;
     runLen: number;
-    toWorld: (t: number) => { x: number; y: number };
+    toWorld: (t: number, laneOffset?: number) => { x: number; y: number };
     glazed: boolean;
   }[] = [];
 
@@ -904,8 +924,8 @@ export function buildModel(input: Design): Model {
     leaves: d.frontDoors,
     offset: d.frontDoorOffset,
     runLen: W,
-    toWorld: (t) => ({ x: (t / W) * W, y: frontY }),
-    glazed: d.glazeFront,
+    toWorld: (t, laneOffset = 0) => ({ x: t, y: frontY - laneOffset }),
+    glazed: false,
   });
 
   doorSpecs.push({
@@ -913,7 +933,7 @@ export function buildModel(input: Design): Model {
     leaves: d.rightDoors,
     offset: d.rightDoorOffset,
     runLen: dR,
-    toWorld: (t) => ({ x: W, y: frontY - t }),
+    toWorld: (t, laneOffset = 0) => ({ x: W - laneOffset, y: frontY - t }),
     glazed: d.glazeRight,
   });
 
@@ -922,22 +942,16 @@ export function buildModel(input: Design): Model {
   for (const spec of doorSpecs) {
     const leafW = DOOR_LEAF_W;
     const leafH = DOOR_LEAF_H;
-    const gap = 0.02;
-    const trackD = levelRailDepth;
-    const supportRail = doorRailBySide.get(spec.side)!;
-
-    /* The door C-purlin is part of the level perimeter, bolted directly to
-       the posts. It is independent of the sloped roof ring and roof purlins. */
-    const trackBottom = (_t: number) => supportRail.a.z - trackD / 2;
-    const leafTop = (t: number) => trackBottom(t) - LEAF_GAP;
-    const leafBottom = (t: number) => leafTop(t) - leafH;
-    /** Walls and studs stop under the leaf. */
+    const supportTrack = floorTrackBySide.get(spec.side)!;
+    const leafBottom = (_t: number) => FLOOR_LEAF_BOTTOM;
+    const leafTop = (_t: number) => FLOOR_LEAF_BOTTOM + leafH;
+    /** Wall framing stops at the fixed-size leaf head on this run. */
     const headOf = (t: number) => leafTop(t);
 
     // --- door openings, expressed as [start, end] along the run ------
     const openings: [number, number][] = [];
     for (let i = 0; i < spec.leaves; i++) {
-      const s = spec.offset + i * (leafW + gap);
+      const s = spec.offset + i * (leafW - DOOR_OVERLAP);
       openings.push([s, s + leafW]);
     }
 
@@ -1014,16 +1028,17 @@ export function buildModel(input: Design): Model {
     // --- sliding doors ------------------------------------------------
     for (let i = 0; i < spec.leaves; i++) {
       const [s, e] = openings[i];
-      const p0 = spec.toWorld(s);
-      const p1 = spec.toWorld(e);
+      const laneOffset = i % 2 === 0 ? -DOOR_LANE_OFFSET : DOOR_LANE_OFFSET;
+      const p0 = spec.toWorld(s, laneOffset);
+      const p1 = spec.toWorld(e, laneOffset);
       const poly: Vec3[] = [
         { x: p0.x, y: p0.y, z: leafBottom(s) },
         { x: p1.x, y: p1.y, z: leafBottom(e) },
         { x: p1.x, y: p1.y, z: leafTop(e) },
         { x: p0.x, y: p0.y, z: leafTop(s) },
       ];
-      /* `poly` is the closed leaf. Single leaves park into a clear adjacent
-         bay; paired leaves retain their existing overlap/stack behavior. */
+      /* `poly` is the closed leaf. Alternating floor-channel lanes let the
+         25 mm brush-seal lap pass without the sheets occupying the same plane. */
       const preferredSlideDir: 1 | -1 = spec.side === "front" ? -1 : 1;
       const availableBefore = Math.max(0, s);
       const availableAfter = Math.max(0, spec.runLen - e);
@@ -1032,13 +1047,14 @@ export function buildModel(input: Design): Model {
       const slideDir: 1 | -1 = spec.leaves === 1 && preferredClearance < leafW && alternateClearance > preferredClearance
         ? preferredSlideDir === -1 ? 1 : -1
         : preferredSlideDir;
-      // A single leaf parks one sheet-width into the adjacent clear bay;
-      // paired leaves stack onto the first leaf as before.
+      // A single leaf travels just beyond its own width to clear the opening;
+      // paired leaves stack with the schematic seal overlap on separate lanes.
+      const singleLeafClearance = leafW + 0.02;
       const park = spec.leaves === 1
-        ? Math.min(leafW + gap, slideDir === -1 ? availableBefore : availableAfter)
-        : i * (leafW + gap);
-      const q0 = spec.toWorld(s + park * slideDir);
-      const q1 = spec.toWorld(e + park * slideDir);
+        ? Math.min(singleLeafClearance, slideDir === -1 ? availableBefore : availableAfter)
+        : i * (leafW - DOOR_OVERLAP);
+      const q0 = spec.toWorld(s + park * slideDir, laneOffset);
+      const q1 = spec.toWorld(e + park * slideDir, laneOffset);
       const parkedStart = s + park * slideDir;
       const parkedEnd = e + park * slideDir;
       const parkedPoly: Vec3[] = [
@@ -1048,42 +1064,41 @@ export function buildModel(input: Design): Model {
         { x: q0.x, y: q0.y, z: leafTop(parkedStart) },
       ];
 
-      const trolleyAssemblies = [0.22, 0.78].map((fraction, trolleyIndex) => {
+      const rollerCarriages = [0.22, 0.78].map((fraction, carriageIndex) => {
         const closedAt = s + leafW * fraction;
         const parkedAt = s + park * slideDir + leafW * fraction;
         const wheelSet = (at: number): Vec3[] =>
-          [-TROLLEY_AXLE_SPACING / 2, TROLLEY_AXLE_SPACING / 2].flatMap((axial) => {
-            const centre = spec.toWorld(at + axial);
-            const ahead = spec.toWorld(at + axial + 0.01);
-            const tangentLength = Math.hypot(ahead.x - centre.x, ahead.y - centre.y) || 1;
-            const nx = (ahead.y - centre.y) / tangentLength;
-            const ny = -(ahead.x - centre.x) / tangentLength;
-            return [-TROLLEY_LATERAL_OFFSET, TROLLEY_LATERAL_OFFSET].map((lateral) => ({
-              x: centre.x + nx * lateral,
-              y: centre.y + ny * lateral,
-              // Rollers bear on the inward lower lips of the open-bottom
-              // channel; their lower tangent meets the lip running surface.
-              z: trackBottom(at + axial) + WHEEL_DIA / 2,
-            }));
-          });
-        const hanger = (at: number): Member => {
-          const p = spec.toWorld(at);
-          const axleZ = trackBottom(at) + WHEEL_DIA / 2;
+          FLOOR_WHEEL_AXLE_OFFSETS.flatMap((axial) =>
+            FLOOR_WHEEL_LANES.map((lane) => {
+              const centre = spec.toWorld(at + axial, laneOffset);
+              const ahead = spec.toWorld(at + axial + 0.01, laneOffset);
+              const tangentLength = Math.hypot(ahead.x - centre.x, ahead.y - centre.y) || 1;
+              const nx = (ahead.y - centre.y) / tangentLength;
+              const ny = -(ahead.x - centre.x) / tangentLength;
+              return {
+                x: centre.x + nx * lane,
+                y: centre.y + ny * lane,
+                z: FLOOR_WHEEL_CENTRE_Z,
+              };
+            }),
+          );
+        const carrier = (at: number): Member => {
+          const p = spec.toWorld(at, laneOffset);
           return {
-            id: `trolley-hanger-${spec.side}-${i}-${trolleyIndex}`,
+            id: `floor-roller-carrier-${spec.side}-${i}-${carriageIndex}`,
             kind: "track",
-            a: { ...p, z: leafTop(at) },
-            b: { ...p, z: axleZ },
-            length: axleZ - leafTop(at),
-            label: "four-wheel trolley hanger",
+            a: { ...p, z: FLOOR_WHEEL_CENTRE_Z },
+            b: { ...p, z: leafBottom(at) },
+            length: leafBottom(at) - FLOOR_WHEEL_CENTRE_Z,
+            label: "floor roller carrier",
           };
         };
         return {
-          id: `trolley-${spec.side}-${i}-${trolleyIndex}`,
-          wheelCentres: wheelSet(closedAt),
-          parkedWheelCentres: wheelSet(parkedAt),
-          hanger: hanger(closedAt),
-          parkedHanger: hanger(parkedAt),
+          id: `carriage-${spec.side}-${i}-${carriageIndex}`,
+          rollerCentres: wheelSet(closedAt),
+          parkedRollerCentres: wheelSet(parkedAt),
+          carrier: carrier(closedAt),
+          parkedCarrier: carrier(parkedAt),
         };
       });
       const leaf: DoorLeaf = {
@@ -1097,8 +1112,9 @@ export function buildModel(input: Design): Model {
         parkedPoly,
         width: leafW,
         height: leafH,
-        supportMemberId: supportRail.id,
-        trolleys: trolleyAssemblies,
+        supportMemberId: supportTrack.id,
+        laneOffset,
+        carriages: rollerCarriages,
       };
       doors.push(leaf);
       panels.push({ id: `dp-${spec.side}-${i}`, kind: "door", poly, opacity: 0.32 });
@@ -1282,9 +1298,7 @@ export function buildModel(input: Design): Model {
       unit: "length",
       lengthMm: Math.ceil(rail.length * 1000),
       totalM: rail.length,
-      note: run === "front" || run === "right"
-        ? "Level run fixed to perimeter posts; this channel carries door trolleys."
-        : "Level run fixed directly to perimeter posts.",
+      note: "Level structural perimeter tie fixed to posts; the recessed floor channels are separate door guides.",
     });
   }
 
@@ -1311,14 +1325,28 @@ export function buildModel(input: Design): Model {
   cutList.push({
     id: "door-rails",
     group: "Steel",
-    item: "Level perimeter C-purlin / door rails",
+    item: "Level perimeter structural ties",
     spec: `C${d.ringDepth}×${d.ringGauge} mm`,
     qty: perimeterRails.length,
     unit: "lengths",
     lengthMm: Math.ceil(Math.max(...perimeterRails.map((rail) => rail.length), 0) * 1000),
     totalM: perimeterRailLength,
-    note: "Four horizontal runs fixed directly to the perimeter posts. Front and right runs are the door trolley channels; doors do not hang from roof purlins.",
+    note: "Four horizontal structural runs fixed to the perimeter posts; door leaves run on separate recessed floor channels.",
   });
+
+  if (floorTracks.length > 0) {
+    cutList.push({
+      id: "floor-tracks",
+      group: "Doors",
+      item: "Recessed double-lane floor channels",
+      spec: "Recessed floor channel, schematic profile; dimensions to be confirmed",
+      qty: floorTracks.length,
+      unit: "runs",
+      lengthMm: Math.ceil(Math.max(...floorTracks.map((track) => track.length), 0) * 1000),
+      totalM: floorTracks.reduce((sum, track) => sum + track.length, 0),
+      note: "Schematic only. Confirm channel profile, drainage, clearances, brush seals and rated wheels with the hardware supplier.",
+    });
+  }
 
   cutList.push({
     id: "girders",
@@ -1400,17 +1428,17 @@ export function buildModel(input: Design): Model {
     spec: "Bolted C-purlin-to-SHS connections",
     qty: posts.length,
     unit: "no.",
-    note: "One at each perimeter post; the level door rail is supported by posts, not roof purlins.",
+    note: "One at each perimeter post; these support structural ties, not the door leaves.",
   });
 
   cutList.push({
     id: "wheels",
     group: "Doors",
-    item: "Four-wheel bearing trolley assemblies",
-    spec: `${(WHEEL_DIA * 1000).toFixed(0)} mm rollers; 2 carriages × 4 rollers per leaf`,
+    item: "Floor-level roller carriages",
+    spec: `${(WHEEL_DIA * 1000).toFixed(0)} mm schematic rollers; 2 carriages × 4 rollers per leaf`,
     qty: sheetCount * 2,
     unit: "assemblies",
-    note: `Eight rollers per leaf. Carriages run inside the C-channel; select the exact track/trolley pair from the hardware supplier and confirm fit and rated capacity.`,
+    note: "Eight illustrative floor-level rollers per leaf. Confirm wheel material, recessed-channel fit, drainage and rated capacity with the hardware supplier.",
   });
 
   cutList.push({
@@ -1421,7 +1449,7 @@ export function buildModel(input: Design): Model {
     qty: sheetCount,
     unit: "sets",
     totalM: sheetCount * 2 * (DOOR_LEAF_W + DOOR_LEAF_H),
-    note: "Four U-channel lengths per leaf; channel wraps sheet edges with the opening turned inward.",
+    note: "Four U-channel lengths per whole 8 × 4 ft sheet; brush-seal overlap is schematic and requires hardware confirmation.",
   });
 
   const roofFull = roofSheets.filter((s) => s.full).length;
@@ -1455,8 +1483,7 @@ export function buildModel(input: Design): Model {
     qty: sheetCount,
     unit: "sheets",
     note:
-      "One whole 2438 \u00d7 1219 mm sheet per leaf, stood on its side, dropped " +
-      "into the casing. Never cut, never two sheets.",
+      "One whole 2438 × 1219 mm sheet per leaf, stood on its side in the U-channel casing. Never cut, never two sheets.",
   });
 
   cutList.push({
@@ -1528,26 +1555,20 @@ export function buildModel(input: Design): Model {
     }
   }
 
-  // The common level rail is set from the low roof-ring underside; the leaf
-  // then hangs below that C-channel on four-wheel carriages.
-  const stackBelowLowEave = ringD + TRACK_DROP + levelRailDepth / 2 + LEAF_GAP + DOOR_LEAF_H;
-  const doorSill = Math.min(zL, zR) - stackBelowLowEave;
-  if (d.frontDoors + d.rightDoors > 0 && doorSill < 0) {
+  // Fixed-size leaves are supported by floor-level wheels; check their head
+  // clearance against the low roof ring. This is geometry screening only.
+  const doorHeadClearance = Math.min(zL, zR) - ringD - FLOOR_LEAF_TOP;
+  if (d.frontDoors + d.rightDoors > 0 && doorHeadClearance < 0) {
     warnings.push({
       level: "error",
-      title: "The doors do not clear the floor at the low end",
-      detail:
-        `A whole 2438 mm sheet below the level perimeter C-purlin needs ` +
-        `${stackBelowLowEave.toFixed(2)} m below the low eave. Raise the low eave by ` +
-        `${Math.ceil(-doorSill * 1000)} mm or more.`,
+      title: "The 8 ft door leaves clash with the low roof ring",
+      detail: `The fixed 2438 mm leaf head needs ${Math.ceil(-doorHeadClearance * 1000)} mm more clearance below the low eave and perimeter ring.`,
     });
-  } else if (d.frontDoors + d.rightDoors > 0 && doorSill < 0.075) {
+  } else if (d.frontDoors + d.rightDoors > 0 && doorHeadClearance < 0.075) {
     warnings.push({
       level: "warn",
-      title: `Doors only clear the floor by ${Math.round(doorSill * 1000)} mm`,
-      detail:
-        "A sliding leaf wants roughly 75 mm to sweep without catching the slab. " +
-        `Raise the low eave by ${Math.ceil((0.075 - doorSill) * 1000)} mm.`,
+      title: `Door head clearance is only ${Math.round(doorHeadClearance * 1000)} mm`,
+      detail: "Check the U-channel casing, brush seals and floor-wheel adjustment against the low eave before fixing final dimensions.",
     });
   }
 
