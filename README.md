@@ -11,8 +11,8 @@ two sides carry structure only.
 
 ## What it does
 
-- **Live drawings** — draggable axonometric plus plan, front elevation, left elevation and
-  cross-section, all generated from one parametric model.
+- **Live drawings** — draggable axonometric with orbit, eye-level tilt and zoom, plan, all
+  four perimeter elevations and cross-section, generated from one parametric model.
 - **Adjustable dimensions** — width, both depths, both eaves, post size and spacing, C purlin
   ring, Z purlin section and centres, girder count, sheet type, door count/size/position,
   roof overhang and knee braces.
@@ -27,6 +27,8 @@ two sides carry structure only.
   every corner against its fixing, roof fall and post spacing.
 - **Sourcing** — a shortlist of Runcorn, Widnes and nearby Deeside / Flintshire counters with
   what to ask each for, and a tick-off list.
+- **Build plan** — measured corner and post set-out coordinates, side lengths and diagonals,
+  plus a staged assembly checklist and site-safety / structural-review reminders.
 
 ## Stack
 

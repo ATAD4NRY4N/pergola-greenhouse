@@ -5,13 +5,9 @@ import { LEAF_GAP } from "../../lib/model";
 import { DimLine, Leader, polyPoints } from "../../lib/draw";
 import { mmNum } from "../../lib/utils";
 
-type Side = "front" | "right";
+type Side = "front" | "right" | "back" | "left";
+type GlazedSide = "front" | "right";
 
-/**
- * True elevation looking at one of the two glazed runs. The left run shows
- * the roof fall (because it runs along x), the front run is against the
- * constant-height left ring at its end and rises to the right.
- */
 export function ElevationView({
   model,
   side,
@@ -23,6 +19,30 @@ export function ElevationView({
 }: {
   model: Model;
   side: Side;
+  width: number;
+  height: number;
+  showSteel: boolean;
+  visibility?: Partial<ComponentVisibility>;
+  pad?: number;
+}) {
+  if (side === "back" || side === "left") {
+    return <StructureElevationView model={model} side={side} width={width} height={height} showSteel={showSteel} visibility={visibility} pad={pad} />;
+  }
+  return <GlazedElevationView model={model} side={side} width={width} height={height} showSteel={showSteel} visibility={visibility} pad={pad} />;
+}
+
+/** Elevation of the two glazed runs, including their doors and wall bays. */
+function GlazedElevationView({
+  model,
+  side,
+  width,
+  height,
+  showSteel,
+  visibility,
+  pad = 64,
+}: {
+  model: Model;
+  side: GlazedSide;
   width: number;
   height: number;
   showSteel: boolean;
@@ -501,6 +521,83 @@ export function ElevationView({
         fontFamily="var(--font-mono)"
       >
         {side === "front" ? "FRONT ELEVATION" : "RIGHT ELEVATION"} · looking inside
+      </text>
+    </svg>
+  );
+}
+
+/** True structural elevation of the solid rear and left perimeter runs. */
+function StructureElevationView({
+  model,
+  side,
+  width,
+  height,
+  showSteel,
+  visibility,
+  pad,
+}: {
+  model: Model;
+  side: "back" | "left";
+  width: number;
+  height: number;
+  showSteel: boolean;
+  visibility?: Partial<ComponentVisibility>;
+  pad: number;
+}) {
+  const d = model.design;
+  const start = side === "back" ? model.plan.bl : model.plan.fl;
+  const end = side === "back" ? model.plan.br : model.plan.bl;
+  const dx = end.x - start.x;
+  const dy = end.y - start.y;
+  const runLen = Math.hypot(dx, dy);
+  const tx = dx / runLen;
+  const ty = dy / runLen;
+  const station = (p: { x: number; y: number }) => (p.x - start.x) * tx + (p.y - start.y) * ty;
+  const offset = (p: { x: number; y: number }) => Math.abs((p.x - start.x) * ty - (p.y - start.y) * tx);
+  const maxH = Math.max(d.eaveLeft, d.eaveRight) + 0.55;
+  const scale = Math.min((width - pad * 2) / runLen, (height - pad * 2) / maxH);
+  const sx = (u: number) => pad + u * scale;
+  const sy = (z: number) => height - pad - z * scale;
+  const worldAt = (u: number) => ({ x: start.x + tx * u, y: start.y + ty * u });
+  const eaveAt = (u: number) => model.eaveAt(worldAt(u).x);
+  const edgePosts = model.posts.filter((post) => offset(post.at) < 0.025 && station(post.at) >= -0.01 && station(post.at) <= runLen + 0.01);
+  const edgeBraces = model.members.filter((member) => member.kind === "brace" && offset(member.a) < 0.12 && offset(member.b) < 0.12 && station(member.a) >= -0.01 && station(member.a) <= runLen + 0.01 && station(member.b) >= -0.01 && station(member.b) <= runLen + 0.01);
+  const rail = model.members.find((member) => member.kind === "level-ring" && member.label?.endsWith(side));
+
+  return (
+    <svg width={width} height={height} viewBox={`0 0 ${width} ${height}`} className="block" role="img" aria-label={`${side} elevation`}>
+      <line x1={pad - 20} y1={sy(0)} x2={width - pad + 20} y2={sy(0)} stroke="var(--color-slate-bark-400)" strokeWidth={1.5} />
+      <g stroke="var(--color-slate-bark-600)" strokeWidth={1} opacity={0.55}>
+        {Array.from({ length: 40 }).map((_, i) => {
+          const x = pad - 20 + i * ((width - 2 * pad + 40) / 39);
+          return <line key={i} x1={x} y1={sy(0)} x2={x - 8} y2={sy(0) + 8} />;
+        })}
+      </g>
+      {showSteel && <>
+        {componentVisible(visibility, "c-purlins") && <>
+          <line x1={sx(0)} y1={sy(eaveAt(0) - d.ringDepth / 1000)} x2={sx(runLen)} y2={sy(eaveAt(runLen) - d.ringDepth / 1000)} stroke="#49c2a7" strokeWidth={Math.max(2, d.ringDepth / 1000 * scale)} />
+          {rail && <line x1={sx(0)} y1={sy(rail.a.z)} x2={sx(runLen)} y2={sy(rail.a.z)} stroke="#49c2a7" strokeWidth={Math.max(2, d.ringDepth / 1000 * scale)} strokeDasharray="7 4" />}
+        </>}
+        {componentVisible(visibility, "posts") && edgePosts.map((post) => {
+          const u = station(post.at);
+          const postWidth = d.postSize / 1000 * scale;
+          return <g key={post.id}>
+            <rect x={sx(u) - postWidth / 2} y={sy(post.height)} width={postWidth} height={sy(0) - sy(post.height)} fill="#8494a5" stroke="#dce5ef" strokeWidth={1.2} />
+            {post.corner && <text x={sx(u)} y={sy(0) + 17} textAnchor="middle" fill="var(--color-slate-bark-400)" fontSize={8} fontFamily="var(--font-mono)">{post.corner.toUpperCase()}</text>}
+          </g>;
+        })}
+        {componentVisible(visibility, "braces") && edgeBraces.map((brace) => (
+          <line key={brace.id} x1={sx(station(brace.a))} y1={sy(brace.a.z)} x2={sx(station(brace.b))} y2={sy(brace.b.z)} stroke="#80aee0" strokeWidth={Math.max(3, d.kneeBraceSize / 1000 * scale * 0.45)} opacity={0.9} />
+        ))}
+      </>}
+      <polyline points={`${sx(0)},${sy(eaveAt(0))} ${sx(runLen)},${sy(eaveAt(runLen))}`} fill="none" stroke="var(--color-canopy-300)" strokeWidth={1.5} strokeDasharray="8 4" />
+      <DimLine x1={sx(0)} y1={sy(0)} x2={sx(runLen)} y2={sy(0)} label={mmNum(runLen)} color="var(--color-canopy-300)" />
+      <DimLine x1={sx(runLen) + 18} y1={sy(0)} x2={sx(runLen) + 18} y2={sy(eaveAt(runLen))} label={mmNum(eaveAt(runLen))} color="var(--color-canopy-300)" />
+      <text x={pad} y={24} fill="var(--color-slate-bark-300)" fontSize={10} letterSpacing="0.18em" fontFamily="var(--font-mono)">
+        {side === "back" ? "BACK ELEVATION · CABIN SIDE" : "LEFT ELEVATION · BOUNDARY SIDE"} · looking inside
+      </text>
+      <text x={width - pad} y={24} textAnchor="end" fill="var(--color-slate-bark-500)" fontSize={9} fontFamily="var(--font-mono)">
+        {side === "back" ? "sloping rear edge" : "constant-x side run"}
       </text>
     </svg>
   );
