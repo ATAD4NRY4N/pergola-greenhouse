@@ -1,5 +1,5 @@
 import { useMemo, useRef, useState } from "react";
-import { componentVisible, memberComponent, panelComponent, TRACK_LIP, TRACK_WIDTH } from "../../lib/model";
+import { componentVisible, memberComponent, panelComponent, FLOOR_TRACK_DEPTH, FLOOR_TRACK_WIDTH, TRACK_LIP, TRACK_WIDTH } from "../../lib/model";
 import type { Model, Vec3, ComponentVisibility } from "../../lib/model";
 import { centroid3, fitPointsStable, polyPoints } from "../../lib/draw";
 
@@ -11,6 +11,7 @@ const KIND_STYLE: Record<
   "ring-heavy": { stroke: "#49c2a7", width: 4, opacity: 0.95 },
   ring: { stroke: "#49c2a7", width: 3, opacity: 0.9 },
   "level-ring": { stroke: "#49c2a7", width: 3.4, opacity: 0.95 },
+  "floor-track": { stroke: "#49c2a7", width: 3, opacity: 0.9 },
   stud: { stroke: "#99bd70", width: 2, opacity: 0.85 },
   sill: { stroke: "#99bd70", width: 2.5, opacity: 0.85 },
   girder: { stroke: "#e4a747", width: 3.4, opacity: 0.92 },
@@ -258,7 +259,7 @@ export function Axonometric({
         );
       })}
 
-      {/* Illustrative open-bottom C-channel lips on the door-running rails. */}
+      {/* Illustrative open-bottom C-channel sections on structural perimeter members. */}
       {showSteel && componentVisible(visibility, "c-purlins") && model.members
         .filter((member) => member.kind === "level-ring")
         .map((member) => {
@@ -305,8 +306,30 @@ export function Axonometric({
           );
         })}
 
+      {/* Schematic recessed door channels; dimensions and exact profile remain unverified. */}
+      {showSteel && componentVisible(visibility, "c-purlins") && model.members.filter((member) => member.kind === "floor-track").map((member) => {
+        const dx = member.b.x - member.a.x;
+        const dy = member.b.y - member.a.y;
+        const length = Math.hypot(dx, dy) || 1;
+        const nx = dy / length;
+        const ny = -dx / length;
+        const at = (base: Vec3, lateral: number, z: number) => P({ x: base.x + nx * lateral, y: base.y + ny * lateral, z });
+        const halfWidth = FLOOR_TRACK_WIDTH / 2;
+        const lines = [
+          [at(member.a, -halfWidth, 0), at(member.b, -halfWidth, 0)],
+          [at(member.a, halfWidth, 0), at(member.b, halfWidth, 0)],
+          [at(member.a, -halfWidth, -FLOOR_TRACK_DEPTH), at(member.b, -halfWidth, -FLOOR_TRACK_DEPTH)],
+          [at(member.a, halfWidth, -FLOOR_TRACK_DEPTH), at(member.b, halfWidth, -FLOOR_TRACK_DEPTH)],
+          [at(member.a, -halfWidth, 0), at(member.a, -halfWidth, -FLOOR_TRACK_DEPTH)],
+          [at(member.a, halfWidth, 0), at(member.a, halfWidth, -FLOOR_TRACK_DEPTH)],
+          [at(member.b, -halfWidth, 0), at(member.b, -halfWidth, -FLOOR_TRACK_DEPTH)],
+          [at(member.b, halfWidth, 0), at(member.b, halfWidth, -FLOOR_TRACK_DEPTH)],
+        ];
+        return <g key={`floor-track-${member.id}`} fill="none" stroke="#49c2a7" strokeWidth={1.6}>{lines.map(([a, b], index) => <line key={index} x1={a.x} y1={a.y} x2={b.x} y2={b.y} />)}</g>;
+      })}
+
       {/* Extruded section solids: SHS boxes, open C-channels and Z sections. */}
-      {sortedMembers.map((member) => {
+      {sortedMembers.filter((member) => member.kind !== "floor-track").map((member) => {
         const style = KIND_STYLE[member.kind] ?? KIND_STYLE.ring;
         const direction = {
           x: member.b.x - member.a.x,
@@ -428,25 +451,20 @@ export function Axonometric({
           );
         })}
 
-      {/* Two captured four-wheel carriages per leaf, shown inside the channel. */}
+      {/* Illustrative floor-level roller carriages, with the leaf load carried at the floor. */}
       {showSteel && componentVisible(visibility, "fixings") && model.doors.flatMap((leaf) =>
-        leaf.trolleys.map((trolley) => {
+        leaf.carriages.map((carriage) => {
           const mix = (a: Vec3, b: Vec3): Vec3 => ({
             x: a.x + (b.x - a.x) * model.design.doorOpen,
             y: a.y + (b.y - a.y) * model.design.doorOpen,
             z: a.z + (b.z - a.z) * model.design.doorOpen,
           });
-          const wheels = trolley.wheelCentres.map((p, i) => P(mix(p, trolley.parkedWheelCentres[i])));
-          const hanger = {
-            a: P(mix(trolley.hanger.a, trolley.parkedHanger.a)),
-            b: P(mix(trolley.hanger.b, trolley.parkedHanger.b)),
-          };
+          const wheels = carriage.rollerCentres.map((point, index) => P(mix(point, carriage.parkedRollerCentres[index])));
+          const carrier = { a: P(mix(carriage.carrier.a, carriage.parkedCarrier.a)), b: P(mix(carriage.carrier.b, carriage.parkedCarrier.b)) };
           return (
-            <g key={trolley.id}>
-              <line x1={hanger.a.x} y1={hanger.a.y} x2={hanger.b.x} y2={hanger.b.y} stroke="#ed806c" strokeWidth={2.2} />
-              {wheels.map((wheel, i) => (
-                <circle key={`${trolley.id}-wheel-${i}`} cx={wheel.x} cy={wheel.y} r={3.2} fill="#dce4e8" stroke="#4a5157" strokeWidth={1} />
-              ))}
+            <g key={carriage.id}>
+              <line x1={carrier.a.x} y1={carrier.a.y} x2={carrier.b.x} y2={carrier.b.y} stroke="#d69e49" strokeWidth={2} />
+              {wheels.map((wheel, index) => <circle key={`${carriage.id}-roller-${index}`} cx={wheel.x} cy={wheel.y} r={3.2} fill="#dce4e8" stroke="#4a5157" strokeWidth={1} />)}
             </g>
           );
         }),

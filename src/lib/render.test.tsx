@@ -105,17 +105,17 @@ describe("views render without throwing", () => {
 });
 
 describe("single sliding-door detail sheet", () => {
-  test("renders the leaf, trolley hanger, SHS junction and U-channel trim details", () => {
+  test("renders the floor-roller arrangement, SHS junction and U-channel trim details", () => {
     const model = buildModel({ ...DEFAULT_DESIGN, frontDoors: 1, rightDoors: 0 });
     const html = renderToStaticMarkup(
       <DoorDetailView model={model} width={900} height={620} />,
     );
     expect(html).toContain('aria-label="Single sliding door and enlarged connection details"');
     expect(html).toContain("COMPLETE LEAF");
-    expect(html).toContain("HANGER + TRACK");
+    expect(html).toContain("RECESSED FLOOR CHANNEL");
     expect(html).toContain("SHS-TO-PURLIN JUNCTION");
     expect(html).toContain("aluminium U-channel");
-    expect(html).toContain("U-CHANNEL-CAPTURED 4-WHEEL TROLLEY");
+    expect(html).toContain("NO OVERHEAD TROLLEY");
     expect(model.doors).toHaveLength(1);
   });
 });
@@ -275,6 +275,31 @@ describe("3D movement controls", () => {
     expect(html).toContain("8,559 mm");
     expect(html).toContain("Solo-friendly assembly sequence");
     expect(html).toContain("not construction or structural instructions");
+  });
+});
+
+describe("Front elevation door-only sheet visibility", () => {
+  test("shows only two fixed-size front door sheets and their casing, without fixed bays or roof flashing", () => {
+    const model = buildModel({ ...DEFAULT_DESIGN, glazeFront: true });
+    const html = renderToStaticMarkup(
+      <ElevationView
+        model={model}
+        side="front"
+        width={900}
+        height={500}
+        showSteel
+        visibility={{ ...DEFAULT_COMPONENT_VISIBILITY, sheets: true, "aluminium-trim": true, "c-purlins": false, "wall-framing": false, posts: false, braces: false, fixings: false, "z-purlins": false }}
+      />,
+    );
+    expect(model.doors.filter((leaf) => leaf.side === "front")).toHaveLength(2);
+    expect(model.wallBays.filter((bay) => bay.side === "front" && bay.type === "glazed")).toHaveLength(0);
+    expect(html.match(/1,219×2,438/g)).toHaveLength(2);
+    expect(html).not.toContain("1,063");
+    expect(html).not.toContain("roof-edge");
+    expect(html).toContain("floor-level rollers");
+    const dimensionLabels = [...html.matchAll(/<text[^>]*>([^<]*)<\/text>/g)].map((match) => match[1]);
+    expect(dimensionLabels.filter((label) => label === "1,219×2,438")).toHaveLength(2);
+    expect(html.match(/<g[^>]*stroke="#f1c877"/g)).toHaveLength(2);
   });
 });
 

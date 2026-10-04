@@ -1,7 +1,6 @@
 import { useMemo } from "react";
-import { componentVisible } from "../../lib/model";
+import { componentVisible, DOOR_FLOOR_CLEARANCE, DOOR_LEAF_H, FLOOR_TRACK_DEPTH } from "../../lib/model";
 import type { ComponentVisibility, Model } from "../../lib/model";
-import { LEAF_GAP } from "../../lib/model";
 import { DimLine, Leader, polyPoints } from "../../lib/draw";
 import { mmNum } from "../../lib/utils";
 
@@ -85,18 +84,13 @@ function GlazedElevationView({
     return model.eaveAt(p.x) - d.ringDepth / 1000;
   };
 
-  /* Door leaves hang from the level perimeter C-purlin, not the roof ring. */
-  const trackD = Math.max(0.05, d.ringDepth / 1000);
-  const supportRail = model.members.find(
-    (member) => member.kind === "level-ring" && member.label?.endsWith(side),
-  );
-  const trackTop = supportRail ? supportRail.a.z + trackD / 2 : 0;
-  const trackBottom = trackTop - trackD;
-  const railElevation = supportRail?.a.z ?? 0;
-  const trackTopOf = (_u: number) => trackTop;
-  const trackBottomOf = (_u: number) => trackBottom;
-  const leafTop = trackBottom - LEAF_GAP;
+  /* Door leaves sit just above the finished floor on recessed floor rollers. */
+  const leafBottom = DOOR_FLOOR_CLEARANCE;
+  const leafTop = leafBottom + DOOR_LEAF_H;
   const leafTopOf = (_u: number) => leafTop;
+  const floorTrack = model.members.find(
+    (member) => member.kind === "floor-track" && member.label?.endsWith(side),
+  );
 
   const leaves = model.doors.filter((dl) => dl.side === side);
 
@@ -105,7 +99,6 @@ function GlazedElevationView({
   const runOf = (p: { x: number; y: number }) =>
     side === "right" ? model.plan.fr.y - p.y : p.x;
 
-  // Draw the front/right section of the full level perimeter member.
   const trackFrom = 0;
   const trackTo = runLen;
 
@@ -151,17 +144,13 @@ function GlazedElevationView({
         strokeDasharray="10 5"
       />
 
-      {/* glazed bays */}
+      {/* Only actual fixed glazed bays are polycarbonate; open bays stay empty. */}
       {componentVisible(visibility, "sheets") && model.wallBays
-        .filter((b) => b.side === side)
+        .filter((b) => b.side === side && b.type === "glazed")
         .map((b) => {
           const x0 = sx(b.centre - b.width / 2);
           const x1 = sx(b.centre + b.width / 2);
-          const top = leafTopOf(b.centre);
-          const doorish = leaves.some(
-            (dl) => b.centre > dl.runStart - 0.01 && b.centre < dl.runEnd + 0.01,
-          );
-          if (doorish) return null;
+          const top = headOf(b.centre);
           return (
             <g key={b.id}>
               <rect
@@ -169,25 +158,23 @@ function GlazedElevationView({
                 y={sy(top)}
                 width={x1 - x0}
                 height={sy(d.sillHeight) - sy(top)}
-                fill={b.type === "glazed" ? `url(#${side}-glaze)` : "none"}
-                stroke={b.type === "glazed" ? "#67cbe3" : "var(--color-slate-bark-500)"}
-                strokeOpacity={b.type === "glazed" ? 0.5 : 0.35}
+                fill={`url(#${side}-glaze)`}
+                stroke="#67cbe3"
+                strokeOpacity={0.5}
                 strokeWidth={1}
               />
-              {b.type === "glazed" && (
-                <text
-                  x={(x0 + x1) / 2}
-                  y={(sy(top) + sy(d.sillHeight)) / 2}
-                  textAnchor="middle"
-                  dominantBaseline="middle"
-                  fill="var(--color-glass-200)"
-                  fontSize={8.5}
-                  fontFamily="var(--font-mono)"
-                  opacity={0.6}
-                >
-                  {mmNum(b.width)}
-                </text>
-              )}
+              <text
+                x={(x0 + x1) / 2}
+                y={(sy(top) + sy(d.sillHeight)) / 2}
+                textAnchor="middle"
+                dominantBaseline="middle"
+                fill="var(--color-glass-200)"
+                fontSize={8.5}
+                fontFamily="var(--font-mono)"
+                opacity={0.6}
+              >
+                {mmNum(b.width)}
+              </text>
             </g>
           );
         })}
@@ -257,95 +244,35 @@ function GlazedElevationView({
         );
       })}
 
-      {/* the track itself, drawn once behind the leaves */}
-      {showSteel && supportRail && componentVisible(visibility, "c-purlins") && (
-        <g>
-          {/* Simplified open-bottom C-channel section: back web, two legs and
-              inward lower lips. Exact dimensions depend on the selected track. */}
-          {(() => {
-            const x0 = sx(trackFrom);
-            const x1 = sx(trackTo);
-            const top0 = sy(trackTopOf(trackFrom));
-            const top1 = sy(trackTopOf(trackTo));
-            const bottom0 = sy(trackBottomOf(trackFrom));
-            const bottom1 = sy(trackBottomOf(trackTo));
-            const lip = Math.max(3, Math.min(7, (x1 - x0) * 0.004));
-            return (
-              <g fill="none" stroke="#49c2a7" strokeWidth={2.8} strokeLinejoin="round">
-                <line x1={x0} y1={top0} x2={x1} y2={top1} />
-                <line x1={x0} y1={top0} x2={x0} y2={bottom0} />
-                <line x1={x1} y1={top1} x2={x1} y2={bottom1} />
-                <line x1={x0} y1={bottom0} x2={x0 + lip} y2={bottom0} />
-                <line x1={x1} y1={bottom1} x2={x1 - lip} y2={bottom1} />
-              </g>
-            );
-          })()}
-          <text
-            x={sx((trackFrom + trackTo) / 2)}
-            y={sy(trackTopOf((trackFrom + trackTo) / 2)) - 5}
-            textAnchor="middle"
-            fill="#49c2a7"
-            fontSize={8.5}
-            fontFamily="var(--font-mono)"
-            opacity={0.85}
-          >
-            level perimeter C-purlin · door rail
-          </text>
-          <line
-            x1={sx(trackFrom)}
-            y1={sy(railElevation)}
-            x2={sx(trackTo)}
-            y2={sy(railElevation)}
-            stroke="var(--color-canopy-400)"
-            strokeWidth={Math.max(2, (d.ringDepth / 1000) * t.scale)}
-            opacity={0.9}
-          />
-          {componentVisible(visibility, "fixings") && componentVisible(visibility, "sheets") && leaves.map((leaf) =>
-            leaf.trolleys.map((trolley) => {
-              const mix = (a: { x: number; y: number; z: number }, b: { x: number; y: number; z: number }) => ({
-                x: a.x + (b.x - a.x) * d.doorOpen,
-                y: a.y + (b.y - a.y) * d.doorOpen,
-                z: a.z + (b.z - a.z) * d.doorOpen,
-              });
-              const wheels = trolley.wheelCentres.map((wheel, index) => {
-                const point = mix(wheel, trolley.parkedWheelCentres[index]);
-                return { u: runOf(point), z: point.z };
-              });
-              const hanger = mix(trolley.hanger.a, trolley.parkedHanger.a);
-              const hangerEnd = mix(trolley.hanger.b, trolley.parkedHanger.b);
-              const axlePairs = [
-                [wheels[0], wheels[1]],
-                [wheels[2], wheels[3]],
-              ];
-              return (
-                <g key={trolley.id}>
-                  {axlePairs.map((pair, index) => pair[0] && pair[1] ? (
-                    <line key={`${trolley.id}-axle-${index}`} x1={sx(pair[0].u)} y1={sy(pair[0].z)} x2={sx(pair[1].u)} y2={sy(pair[1].z)} stroke="#d69e49" strokeWidth={2.6} />
-                  ) : null)}
-                  <line
-                    x1={sx(runOf(hanger))}
-                    y1={sy(hanger.z)}
-                    x2={sx(runOf(hangerEnd))}
-                    y2={sy(hangerEnd.z)}
-                    stroke="#ed806c"
-                    strokeWidth={1.5}
-                  />
-                  {wheels.map((wheel, index) => (
-                    <circle
-                      key={`${trolley.id}-wheel-${index}`}
-                      cx={sx(wheel.u)}
-                      cy={sy(wheel.z)}
-                      r={3.2}
-                    fill="#dce4e8"
-                    stroke="var(--color-slate-bark-950)"
-                      strokeWidth={1}
-                    />
-                  ))}
-                </g>
-              );
-            }),
-          )}
+      {/* Recessed floor channel and its illustrative rollers, separately toggled from sheets. */}
+      {showSteel && floorTrack && componentVisible(visibility, "c-purlins") && (
+        <g aria-label="schematic recessed floor channel">
+          <line x1={sx(trackFrom)} y1={sy(0)} x2={sx(trackTo)} y2={sy(0)} stroke="#49c2a7" strokeWidth={2} />
+          <line x1={sx(trackFrom)} y1={sy(-FLOOR_TRACK_DEPTH)} x2={sx(trackTo)} y2={sy(-FLOOR_TRACK_DEPTH)} stroke="#49c2a7" strokeWidth={2} />
+          <text x={sx((trackFrom + trackTo) / 2)} y={sy(-FLOOR_TRACK_DEPTH) + 12} textAnchor="middle" fill="#49c2a7" fontSize={8} fontFamily="var(--font-mono)">schematic recessed floor channel · dimensions to confirm</text>
         </g>
+      )}
+      {showSteel && componentVisible(visibility, "fixings") && componentVisible(visibility, "sheets") && leaves.map((leaf) =>
+        leaf.carriages.map((carriage) => {
+          const wheels = carriage.rollerCentres.map((wheel, index) => {
+            const parked = carriage.parkedRollerCentres[index];
+            const u = runOf({ x: wheel.x + (parked.x - wheel.x) * d.doorOpen, y: wheel.y + (parked.y - wheel.y) * d.doorOpen });
+            return { u, z: wheel.z + (parked.z - wheel.z) * d.doorOpen };
+          });
+          const interpolate = (start: { x: number; y: number; z: number }, end: { x: number; y: number; z: number }) => ({
+            x: start.x + (end.x - start.x) * d.doorOpen,
+            y: start.y + (end.y - start.y) * d.doorOpen,
+            z: start.z + (end.z - start.z) * d.doorOpen,
+          });
+          const carrierTop = interpolate(carriage.carrier.a, carriage.parkedCarrier.a);
+          const carrierBottom = interpolate(carriage.carrier.b, carriage.parkedCarrier.b);
+          return (
+            <g key={carriage.id}>
+              {wheels.map((wheel, index) => <circle key={`${carriage.id}-roller-${index}`} cx={sx(wheel.u)} cy={sy(wheel.z)} r={3.2} fill="#dce4e8" stroke="#4a5157" strokeWidth={1} />)}
+              <line x1={sx(runOf(carrierTop))} y1={sy(carrierTop.z)} x2={sx(runOf(carrierBottom))} y2={sy(carrierBottom.z)} stroke="#d69e49" strokeWidth={1.5} />
+            </g>
+          );
+        }),
       )}
 
       {/* frame */}
@@ -452,25 +379,17 @@ function GlazedElevationView({
         const slide = d.doorOpen * leaf.travel;
         const u0 = leaf.runStart + slide * leaf.slideDir;
         const u1 = u0 + leaf.width;
-        const uMid = (u0 + u1) / 2;
         const top = leafTopOf(u0);
         const bottom = top - leaf.height;
         const trim = Math.max(2, (d.aluminiumTrimSize / 1000) * t.scale);
         return (
           <g key={`trim-${leaf.id}`} fill="none" stroke="#f1c877" strokeWidth={trim}>
             <rect x={sx(u0)} y={sy(top)} width={sx(u1) - sx(u0)} height={sy(bottom) - sy(top)} />
-            <line x1={sx(uMid)} y1={sy(top)} x2={sx(uMid)} y2={sy(bottom)} stroke="#ffe4a9" strokeWidth={Math.max(1, trim * 0.55)} />
           </g>
         );
       })}
 
-      {/* roof-edge aluminium flashing */}
-      {showSteel && componentVisible(visibility, "aluminium-trim") && (
-        <g fill="none" stroke="#f1c877" strokeWidth={2} strokeDasharray="8 2">
-          <line x1={sx(0)} y1={sy(model.eaveAt(toWorld(0).x) - 0.025)} x2={sx(runLen)} y2={sy(model.eaveAt(toWorld(runLen).x) - 0.025)} />
-          <line x1={sx(0)} y1={sy(headOf(0) - 0.018)} x2={sx(runLen)} y2={sy(headOf(runLen) - 0.018)} />
-        </g>
-      )}
+
 
       {/* dimensions */}
       <DimLine
@@ -507,7 +426,7 @@ function GlazedElevationView({
           y1={sy(headOf(leaves[0].runStart) - leaves[0].height / 2)}
           x2={sx(leaves[0].runStart + leaves[0].width / 2) + 30}
           y2={sy(0) - 46}
-          label="polycarb door\nhung on 2 × 4-wheel channel trolleys"
+          label="8 × 4 ft polycarbonate leaf\nU-channel casing · floor-level rollers"
           color="var(--color-brass-300)"
           fontSize={9}
         />
@@ -763,10 +682,7 @@ export function SectionView({
         strokeWidth={1.4}
       />}
 
-      {/* roof-edge flashing and fixings */}
-      {componentVisible(visibility, "aluminium-trim") && (
-        <path d={`M ${sx(-d.roofOverhang)} ${sy(model.eaveAt(0) + 0.025)} L ${sx(d.width + d.roofOverhang)} ${sy(model.eaveAt(d.width) + 0.025)}`} stroke="#f1c877" strokeWidth={2} strokeDasharray="8 2" />
-      )}
+      {/* Roof flashing is not aluminium door trim; only door casing uses that toggle. */}
       {componentVisible(visibility, "fixings") && componentVisible(visibility, "sheets") && [0.2, 0.4, 0.6, 0.8].map((fraction) => {
         const x = d.width * fraction;
         return <circle key={fraction} cx={sx(x)} cy={sy(model.eaveAt(x) + 0.012)} r={2.2} fill="#ed806c" stroke="#fff0e9" strokeWidth={0.7} />;

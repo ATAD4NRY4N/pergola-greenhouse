@@ -572,8 +572,7 @@ export function ControlPanel({
           onChange={(v) => set("polyThickness", v)}
         />
         <p className="font-mono text-[10px] leading-relaxed text-slate-bark-500">
-          All sheets are 2438 × 1219 mm (8 × 4 ft). Roof, walls and doors all come
-          off the same sheet size, so offcuts can be shared.
+          Sheets are 2438 × 1219 mm (8 × 4 ft). Door leaves use one whole sheet each.
         </p>
         <Dim
           label="Sheet fixing spacing"
@@ -659,11 +658,6 @@ export function ControlPanel({
           </>
         )}
         <Toggle
-          label="Glaze the front run"
-          checked={design.glazeFront}
-          onChange={(v) => set("glazeFront", v)}
-        />
-        <Toggle
           label="Glaze the right run"
           checked={design.glazeRight}
           onChange={(v) => set("glazeRight", v)}
@@ -676,9 +670,9 @@ export function ControlPanel({
             Leaf is fixed
           </p>
           <p className="mt-1 text-[11px] leading-relaxed text-slate-bark-300">
-            One full 8 × 4 ft sheet per leaf, hung on two four-wheel bearing
-            trolleys inside the C-channel and edged with aluminium U-channel.
-            Confirm channel opening and trolley fit with the hardware supplier.
+            One whole 8 × 4 ft sheet per leaf, in aluminium U-channel casing.
+            Leaves overlap slightly for brush seals and run on schematic floor-level
+            rollers in a recessed channel. Confirm the complete hardware arrangement with the supplier.
           </p>
         </div>
         <Dim
@@ -818,10 +812,10 @@ export function ControlPanel({
         defaultOpen={false}
       >
         <p className="font-mono text-[10px] leading-relaxed text-slate-bark-500">
-          Sections, sheet sizes and fixings follow the brief: SHS posts on the
-          perimeter and corners only, C purlin ring, Z purlins to the roof,
-          8 × 4 ft twinwall polycarbonate for roof, walls and doors, sliding
-          leaves on track wheels hung from the C purlin.
+          Door leaves are fixed-size whole 8 × 4 ft polycarbonate sheets edged
+          in aluminium U-channel. Their slight brush-seal overlap and recessed
+          floor-channel roller arrangement are schematic; confirm supplier hardware
+          and structural details before construction.
         </p>
         <Button
           variant="outline"
