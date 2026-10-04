@@ -12,6 +12,8 @@ import {
   CircleAlert,
   MapPin,
   Truck,
+  Ruler,
+  HardHat,
 } from "lucide-react";
 
 /* ------------------------------------------------------------------ */
@@ -231,12 +233,106 @@ export function ChecksPanel({ model }: { model: Model }) {
 }
 
 /* ------------------------------------------------------------------ */
+/* Ground set-out and solo assembly plan                               */
+/* ------------------------------------------------------------------ */
+
+export function BuildPlanPanel({ model }: { model: Model }) {
+  const [copied, setCopied] = useState(false);
+  const { plan, design, posts } = model;
+  const fromFront = (p: { x: number; y: number }) => plan.fl.y - p.y;
+  const diagonal = (a: { x: number; y: number }, b: { x: number; y: number }) => Math.hypot(b.x - a.x, b.y - a.y);
+  const points = [
+    { name: "FL · front-left", at: plan.fl },
+    { name: "FR · front-right", at: plan.fr },
+    { name: "BR · back-right", at: plan.br },
+    { name: "BL · back-left", at: plan.bl },
+  ];
+  const postLabel = (post: (typeof posts)[number], index: number) => post.corner
+    ? post.corner.toUpperCase()
+    : `P${String(posts.slice(0, index + 1).filter((item) => !item.corner).length).padStart(2, "0")}`;
+  const setOut = [
+    `GROUND SET-OUT — ${design.name}`,
+    `Use FL as (0, 0); X runs right, Y runs back. Units: mm.`,
+    ...points.map(({ name, at }) => `${name}: X ${Math.round(at.x * 1000)}, Y ${Math.round(fromFront(at) * 1000)}`),
+    `Sides FL-FR ${Math.round(diagonal(plan.fl, plan.fr) * 1000)} · FR-BR ${Math.round(diagonal(plan.fr, plan.br) * 1000)} · BR-BL ${Math.round(diagonal(plan.br, plan.bl) * 1000)} · BL-FL ${Math.round(diagonal(plan.bl, plan.fl) * 1000)}`,
+    `Diagonals FL-BR ${Math.round(diagonal(plan.fl, plan.br) * 1000)} · FR-BL ${Math.round(diagonal(plan.fr, plan.bl) * 1000)}`,
+    ...posts.map((post, index) => `${postLabel(post, index)}: X ${Math.round(post.at.x * 1000)}, Y ${Math.round(fromFront(post.at) * 1000)}`),
+  ].join("\n");
+  const copySetOut = async () => {
+    try {
+      await navigator.clipboard.writeText(setOut);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1800);
+    } catch {
+      /* Keep the on-screen schedule available when clipboard access is blocked. */
+    }
+  };
+  const sideMm = (a: { x: number; y: number }, b: { x: number; y: number }) => Math.round(diagonal(a, b) * 1000).toLocaleString();
+  const coordMm = (metres: number) => Math.round(metres * 1000).toLocaleString();
+
+  return (
+    <Card className="flex h-full flex-col">
+      <CardHeader>
+        <Ruler className="size-3.5 text-canopy-400" />
+        <CardTitle className="flex-1">Ground set-out &amp; build plan</CardTitle>
+        <Button variant="ghost" size="sm" onClick={copySetOut}>
+          {copied ? <Check className="size-3.5" /> : <Copy className="size-3.5" />}
+          {copied ? "Copied" : "Copy set-out"}
+        </Button>
+      </CardHeader>
+      <CardBody className="panel-scroll space-y-4 overflow-y-auto">
+        <p className="text-[11px] leading-relaxed text-slate-bark-400">Start at the front-left corner (FL). Coordinates below are plan dimensions from that datum; use the ground as a measured layout, not a substitute for verified site levels or foundation design.</p>
+        <section className="rounded-md border border-slate-bark-800 bg-slate-bark-950/60 p-3">
+          <h3 className="font-mono text-[10px] uppercase tracking-[0.16em] text-canopy-300">1 · Mark the footprint</h3>
+          <p className="mt-1 text-[10px] text-slate-bark-500">FL is (0, 0); X right, Y back · all figures mm</p>
+          <div className="mt-2 space-y-1.5">
+            {points.map(({ name, at }) => <div key={name} className="flex justify-between gap-3 font-mono text-[10px]"><span className="text-slate-bark-300">{name}</span><span className="text-canopy-200 tnum">X {coordMm(at.x)} · Y {coordMm(fromFront(at))}</span></div>)}
+          </div>
+          <div className="mt-3 grid grid-cols-2 gap-1.5 border-t border-slate-bark-800 pt-2 font-mono text-[10px]">
+            <span className="text-slate-bark-500">Front FL–FR</span><span className="text-right text-slate-bark-200">{sideMm(plan.fl, plan.fr)} mm</span>
+            <span className="text-slate-bark-500">Right FR–BR</span><span className="text-right text-slate-bark-200">{sideMm(plan.fr, plan.br)} mm</span>
+            <span className="text-slate-bark-500">Back BR–BL</span><span className="text-right text-slate-bark-200">{sideMm(plan.br, plan.bl)} mm</span>
+            <span className="text-slate-bark-500">Left BL–FL</span><span className="text-right text-slate-bark-200">{sideMm(plan.bl, plan.fl)} mm</span>
+            <span className="border-t border-slate-bark-800 pt-1 text-canopy-300">Diagonal FL–BR</span><span className="border-t border-slate-bark-800 pt-1 text-right text-canopy-200">{sideMm(plan.fl, plan.br)} mm</span>
+            <span className="text-canopy-300">Diagonal FR–BL</span><span className="text-right text-canopy-200">{sideMm(plan.fr, plan.bl)} mm</span>
+          </div>
+          <p className="mt-2 text-[10px] leading-relaxed text-slate-bark-500">Use a baseline, square, tape and batter boards; measure both diagonals to check the footprint. This plan may be intentionally skewed—do not force the diagonals equal. Confirm each corner angle against the design before fixing the layout.</p>
+        </section>
+        <section className="rounded-md border border-slate-bark-800 bg-slate-bark-950/60 p-3">
+          <h3 className="font-mono text-[10px] uppercase tracking-[0.16em] text-canopy-300">2 · Stake every post</h3>
+          <p className="mt-1 text-[10px] leading-relaxed text-slate-bark-500">Post-centre coordinates relative to FL; corner IDs match the model. Set levels from a common datum, then verify actual finished floor / pad heights separately.</p>
+          <div className="panel-scroll mt-2 max-h-44 space-y-1 overflow-y-auto">
+            {posts.map((post, index) => <div key={post.id} className="flex justify-between gap-3 font-mono text-[10px]"><span className="text-slate-bark-300">{postLabel(post, index)}{post.corner ? " corner" : " post"}</span><span className="text-canopy-200 tnum">X {coordMm(post.at.x)} · Y {coordMm(fromFront(post.at))}</span></div>)}
+          </div>
+        </section>
+        <section className="rounded-md border border-slate-bark-800 bg-slate-bark-950/60 p-3">
+          <h3 className="font-mono text-[10px] uppercase tracking-[0.16em] text-canopy-300">3 · Solo-friendly assembly sequence</h3>
+          <ol className="mt-2 space-y-2 text-[11px] leading-relaxed text-slate-bark-300">
+            <li><b className="text-canopy-200">Before digging:</b> check permissions, underground services, boundary clearances, access and the engineer-approved foundation / anchor detail.</li>
+            <li><b className="text-canopy-200">Prepare:</b> freeze a design revision; confirm member capacities, wind/uplift, connections, foundations and supplier section properties with a qualified professional. Order and label cut members by run.</li>
+            <li><b className="text-canopy-200">Set out:</b> establish one level datum, batter boards, footprint corners and post centres. Check side lengths, both design diagonals, boundary offsets and finished levels before excavating.</li>
+            <li><b className="text-canopy-200">Foundations:</b> form and cure the engineer-specified pads/anchors; recheck centre positions and levels before lifting steel.</li>
+            <li><b className="text-canopy-200">Frame safely:</b> plan lifts and temporary bracing; use suitable lifting gear / a second person for long or heavy members. Stand and brace posts, fit perimeter rails, square/plumb-check, then install braces and roof girders/purlins.</li>
+            <li><b className="text-canopy-200">Close in:</b> trial-fit tracks and doors, test clearances, then install glazing and roof sheets following the panel maker’s expansion, sealing and fixing instructions.</li>
+            <li><b className="text-canopy-200">Final check:</b> verify anchors, bolts, plumb, drainage/fall, door travel, sharp edges and weather seals; keep temporary bracing until the permanent frame is complete and checked.</li>
+          </ol>
+        </section>
+        <div className="flex gap-2 rounded-md border border-brass-400/30 bg-brass-400/5 p-3">
+          <HardHat className="mt-0.5 size-4 shrink-0 text-brass-300" />
+          <p className="text-[10px] leading-relaxed text-slate-bark-300"><b className="text-brass-200">Planning aid only—not construction or structural instructions.</b> The generated sizes, spacing and foundations are not verified for site loads, ground, wind, connections or local rules. Obtain approval and qualified design review before ordering, excavation or assembly. Do not erect long/heavy members alone; use a lift plan and competent help.</p>
+        </div>
+      </CardBody>
+    </Card>
+  );
+}
+
+/* ------------------------------------------------------------------ */
 /* Sourcing                                                            */
 /* ------------------------------------------------------------------ */
 
 export function SourcingPanel() {
   const [checked, setChecked] = useState<Record<string, boolean>>({});
-  const done = SUPPLIERS.filter((s) => checked[s.name]).length;
+  const done = SUPPLIERS.filter((s) => checked[s.name + s.where]).length;
 
   return (
     <Card>

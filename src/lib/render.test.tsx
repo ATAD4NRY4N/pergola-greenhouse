@@ -6,7 +6,7 @@ import { Axonometric } from "../components/views/Axonometric";
 import { PlanView } from "../components/views/PlanView";
 import { ElevationView, SectionView } from "../components/views/ElevationView";
 import { DoorDetailView } from "../components/views/DoorDetailView";
-import { ChecksPanel } from "../components/panels";
+import { BuildPlanPanel, ChecksPanel } from "../components/panels";
 import { Landing } from "../pages/Landing";
 import { Designer } from "../components/Designer";
 import { XyzPad, OrbitControls } from "../components/ViewControls";
@@ -80,16 +80,18 @@ describe("views render without throwing", () => {
       );
       expect(front).toContain("<svg");
 
-      const left = renderToStaticMarkup(
-        <ElevationView
-          model={model}
-          side="right"
-          width={640}
-          height={360}
-          showSteel
-        />,
+      const right = renderToStaticMarkup(
+        <ElevationView model={model} side="right" width={640} height={360} showSteel />,
       );
-      expect(left).toContain("<svg");
+      const back = renderToStaticMarkup(
+        <ElevationView model={model} side="back" width={640} height={360} showSteel />,
+      );
+      const left = renderToStaticMarkup(
+        <ElevationView model={model} side="left" width={640} height={360} showSteel />,
+      );
+      expect(right).toContain('aria-label="right elevation"');
+      expect(back).toContain('aria-label="back elevation"');
+      expect(left).toContain('aria-label="left elevation"');
 
       const section = renderToStaticMarkup(
         <SectionView model={model} width={640} height={360} />,
@@ -141,6 +143,7 @@ describe("full pages render without throwing", () => {
     expect(html).toContain("Cut list");
     expect(html).toContain("Front");
     expect(html).toContain("Sourcing");
+    expect(html).toContain("Build plan");
     expect(html).toContain("Perimeter ring");
     expect(html).toContain("<svg");
   });
@@ -184,13 +187,18 @@ describe("3D movement controls", () => {
       <OrbitControls
         yaw={-38}
         tilt={58}
+        zoom={1}
         onYaw={() => {}}
         onTilt={() => {}}
+        onZoom={() => {}}
         onReset={() => {}}
       />,
     );
     expect(html).toContain('aria-label="Spin"');
     expect(html).toContain('aria-label="Tilt"');
+    expect(html).toContain('aria-label="Zoom"');
+    expect(html).toContain('min="0"');
+    expect(html).toContain('max="90"');
   });
 
   test("the axonometric pans without changing the model", () => {
@@ -225,7 +233,7 @@ describe("3D movement controls", () => {
     );
   });
 
-  test("the axonometric honours a tilt change", () => {
+  test("the axonometric honours eye-level tilt and zoom changes", () => {
     const model = buildModel(DEFAULT_DESIGN);
     const flat = renderToStaticMarkup(
       <Axonometric
@@ -246,10 +254,27 @@ describe("3D movement controls", () => {
         width={500}
         height={320}
         yaw={-38}
-        tilt={80}
+        tilt={0}
       />,
     );
+    const zoomed = renderToStaticMarkup(
+      <Axonometric model={model} showSheets showSteel width={500} height={320} yaw={-38} tilt={58} zoom={2} />,
+    );
     expect(flat).not.toBe(steep);
+    expect(flat).not.toBe(zoomed);
+    expect(zoomed).toContain("<svg");
+  });
+
+  test("set-out guide reports the skewed footprint, diagonals and post coordinates", () => {
+    const model = buildModel(DEFAULT_DESIGN);
+    const html = renderToStaticMarkup(<BuildPlanPanel model={model} />);
+    expect(html).toContain("Ground set-out &amp; build plan");
+    expect(html).toContain("FL–BR");
+    expect(html).toContain("FR–BL");
+    expect(html).toContain("X 8,500 · Y 7,000");
+    expect(html).toContain("8,559 mm");
+    expect(html).toContain("Solo-friendly assembly sequence");
+    expect(html).toContain("not construction or structural instructions");
   });
 });
 
@@ -278,8 +303,18 @@ describe("views handle missing sheets and steel", () => {
     const elevation = renderToStaticMarkup(
       <ElevationView model={model} side="front" width={500} height={320} showSteel visibility={{ ...onlyGlass, sheets: false }} />,
     );
+    const rearElevation = renderToStaticMarkup(
+      <ElevationView model={model} side="back" width={500} height={320} showSteel visibility={{ ...onlyGlass, sheets: false }} />,
+    );
+    const leftElevation = renderToStaticMarkup(
+      <ElevationView model={model} side="left" width={500} height={320} showSteel visibility={{ ...onlyGlass, sheets: false }} />,
+    );
     expect(elevation).not.toContain("#f1c877");
     expect(elevation).not.toContain("#ed806c");
+    expect(rearElevation).not.toContain("#49c2a7");
+    expect(rearElevation).not.toContain("#8494a5");
+    expect(leftElevation).not.toContain("#49c2a7");
+    expect(leftElevation).not.toContain("#8494a5");
 
     const section = renderToStaticMarkup(
       <SectionView model={model} width={500} height={320} visibility={{ ...onlyGlass, sheets: false }} />,

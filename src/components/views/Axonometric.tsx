@@ -29,8 +29,10 @@ export function Axonometric({
   height,
   yaw,
   tilt,
+  zoom = 1,
   onYaw,
   onTilt,
+  onZoom,
   pan,
   onPan,
 }: {
@@ -42,8 +44,10 @@ export function Axonometric({
   height: number;
   yaw: number;
   tilt: number;
+  zoom?: number;
   onYaw?: (y: number) => void;
   onTilt?: (t: number) => void;
+  onZoom?: (z: number) => void;
   /** World-space offset in metres, so the model can be moved in X, Y and Z. */
   pan?: Vec3;
   onPan?: (p: Vec3) => void;
@@ -55,10 +59,12 @@ export function Axonometric({
   const drag = useRef<Drag>(null);
   const [localYaw, setLocalYaw] = useState(yaw);
   const [localTilt, setLocalTilt] = useState(tilt);
+  const [localZoom, setLocalZoom] = useState(zoom);
   const [localPan, setLocalPan] = useState<Vec3>({ x: 0, y: 0, z: 0 });
 
   const yawValue = onYaw ? yaw : localYaw;
   const tiltValue = onTilt ? tilt : localTilt;
+  const zoomValue = onZoom ? zoom : localZoom;
   const panValue = pan ?? localPan;
 
   const setYawValue = (v: number) => {
@@ -68,6 +74,11 @@ export function Axonometric({
   const setTiltValue = (v: number) => {
     if (onTilt) onTilt(v);
     else setLocalTilt(v);
+  };
+  const setZoomValue = (v: number) => {
+    const next = Math.min(2.5, Math.max(0.65, v));
+    if (onZoom) onZoom(next);
+    else setLocalZoom(next);
   };
   const setPanValue = (v: Vec3) => {
     if (onPan) onPan(v);
@@ -91,9 +102,11 @@ export function Axonometric({
   const baseProject = fit.project;
   const project = useMemo(() => {
     const { x: dx, y: dy, z: dz } = panValue;
-    if (dx === 0 && dy === 0 && dz === 0) return baseProject;
-    return (p: Vec3) => baseProject({ x: p.x + dx, y: p.y + dy, z: p.z + dz });
-  }, [baseProject, panValue]);
+    return (p: Vec3) => {
+      const projected = baseProject({ x: p.x + dx, y: p.y + dy, z: p.z + dz });
+      return { x: width / 2 + (projected.x - width / 2) * zoomValue, y: height / 2 + (projected.y - height / 2) * zoomValue };
+    };
+  }, [baseProject, panValue, zoomValue, width, height]);
 
   const P = (p: Vec3) => project(p);
 
@@ -153,7 +166,7 @@ export function Axonometric({
         const dy = e.clientY - g.y;
         if (g.mode === "orbit") {
           setYawValue((g.yaw + dx * 0.45) % 360);
-          setTiltValue(Math.min(88, Math.max(18, g.tilt - dy * 0.35)));
+          setTiltValue(Math.min(90, Math.max(0, g.tilt - dy * 0.35)));
         } else {
           // Horizontal drag slides along the model's X/Y, vertical along Z.
           setPanValue({
@@ -162,6 +175,10 @@ export function Axonometric({
             z: g.pan.z + dy * panScale,
           });
         }
+      }}
+      onWheel={(e) => {
+        e.preventDefault();
+        setZoomValue(zoomValue * Math.exp(-e.deltaY * 0.001));
       }}
       onPointerUp={() => {
         drag.current = null;
@@ -174,7 +191,7 @@ export function Axonometric({
       }}
       onDoubleClick={() => setPanValue({ x: 0, y: 0, z: 0 })}
       role="img"
-      aria-label="Axonometric view of the pergola greenhouse structure. Drag to orbit, shift-drag or right-drag to move in X, Y and Z."
+      aria-label="Axonometric view of the pergola greenhouse structure. Drag to orbit, shift-drag or right-drag to move in X, Y and Z, and use the mouse wheel to zoom."
     >
       <defs>
         <linearGradient id="roofSheen" x1="0" y1="0" x2="1" y2="1">

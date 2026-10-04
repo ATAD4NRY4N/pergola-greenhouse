@@ -15,7 +15,7 @@ import { ElevationView, SectionView } from "./views/ElevationView";
 import { DoorDetailView } from "./views/DoorDetailView";
 import { ControlPanel } from "./ControlPanel";
 import { OrbitControls, XyzPad } from "./ViewControls";
-import { ChecksPanel, CutListPanel, SourcingPanel } from "./panels";
+import { BuildPlanPanel, ChecksPanel, CutListPanel, SourcingPanel } from "./panels";
 import { Badge, Button, Card } from "./ui";
 import { cn, mmNum } from "../lib/utils";
 import { coerceDesign, type DesignStore } from "../lib/stores";
@@ -38,16 +38,19 @@ import {
   X,
   CloudOff,
   DoorOpen,
+  Home,
 } from "lucide-react";
 
-type ViewKey = "axon" | "plan" | "front" | "right" | "section" | "door";
-type SideKey = "cut" | "checks" | "sourcing";
+type ViewKey = "axon" | "plan" | "front" | "right" | "back" | "left" | "section" | "door";
+type SideKey = "cut" | "checks" | "sourcing" | "build";
 
 const VIEWS: { key: ViewKey; label: string; icon: typeof Box }[] = [
   { key: "axon", label: "3D", icon: Box },
   { key: "plan", label: "Plan", icon: MapIcon },
   { key: "front", label: "Front", icon: Columns3 },
   { key: "right", label: "Right", icon: PanelTop },
+  { key: "back", label: "Back", icon: PanelTop },
+  { key: "left", label: "Left", icon: PanelTop },
   { key: "section", label: "Section", icon: Ruler },
   { key: "door", label: "Door detail", icon: DoorOpen },
 ];
@@ -56,6 +59,7 @@ const SIDES: { key: SideKey; label: string; icon: typeof Boxes }[] = [
   { key: "cut", label: "Cut list", icon: ClipboardList },
   { key: "checks", label: "Checks", icon: Grid3x3 },
   { key: "sourcing", label: "Sourcing", icon: MapPin },
+  { key: "build", label: "Build plan", icon: Home },
 ];
 
 export function DesignerApp({
@@ -78,6 +82,7 @@ export function DesignerApp({
   );
   const [yaw, setYaw] = useState(-38);
   const [tilt, setTilt] = useState(58);
+  const [zoom, setZoom] = useState(1);
   const [pan, setPan] = useState({ x: 0, y: 0, z: 0 });
   const [savedId, setSavedId] = useState<string | null>(null);
   const [status, setStatus] = useState<string | null>(null);
@@ -317,11 +322,14 @@ export function DesignerApp({
                 <OrbitControls
                   yaw={yaw}
                   tilt={tilt}
+                  zoom={zoom}
                   onYaw={setYaw}
                   onTilt={setTilt}
+                  onZoom={setZoom}
                   onReset={() => {
                     setYaw(-38);
                     setTilt(58);
+                    setZoom(1);
                     setPan({ x: 0, y: 0, z: 0 });
                   }}
                 />
@@ -340,8 +348,10 @@ export function DesignerApp({
                 height={h}
                 yaw={yaw}
                 tilt={tilt}
+                zoom={zoom}
                 onYaw={setYaw}
                 onTilt={setTilt}
+                onZoom={setZoom}
                 pan={pan}
                 onPan={setPan}
               />
@@ -376,6 +386,12 @@ export function DesignerApp({
                 visibility={componentVisibility}
               />
             )}
+            {view === "back" && (
+              <ElevationView model={model} side="back" width={w} height={h} showSteel visibility={componentVisibility} />
+            )}
+            {view === "left" && (
+              <ElevationView model={model} side="left" width={w} height={h} showSteel visibility={componentVisibility} />
+            )}
             {view === "section" && (
               <SectionView model={model} width={w} height={h} visibility={componentVisibility} />
             )}
@@ -389,7 +405,9 @@ export function DesignerApp({
                 <br />
                 right / shift-drag = move X, Y, Z
                 <br />
-                double-click = recentre
+                wheel = zoom · eye-level = tilt 0°
+                <br />
+                double-click = recenter
               </p>
             )}
 
@@ -450,6 +468,7 @@ export function DesignerApp({
             {side === "cut" && <CutListPanel model={model} />}
             {side === "checks" && <ChecksPanel model={model} />}
             {side === "sourcing" && <SourcingPanel />}
+            {side === "build" && <BuildPlanPanel model={model} />}
           </div>
         </aside>
       </div>

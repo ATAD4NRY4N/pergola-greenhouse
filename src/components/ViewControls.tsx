@@ -125,14 +125,18 @@ export function XyzPad({
 export function OrbitControls({
   yaw,
   tilt,
+  zoom,
   onYaw,
   onTilt,
+  onZoom,
   onReset,
 }: {
   yaw: number;
   tilt: number;
+  zoom: number;
   onYaw: (v: number) => void;
   onTilt: (v: number) => void;
+  onZoom: (v: number) => void;
   onReset: () => void;
 }) {
   return (
@@ -155,13 +159,28 @@ export function OrbitControls({
         <input
           type="range"
           className="pf-slider !h-6 !w-20"
-          min={18}
-          max={88}
+          min={0}
+          max={90}
           step={1}
           value={tilt}
           onChange={(e) => onTilt(Number(e.target.value))}
           aria-label="Tilt"
+          title="0° eye-level side view to 90° overhead"
         />
+      </label>
+      <label className="flex items-center gap-1.5">
+        <span className="font-mono text-[10px] text-slate-bark-500">zoom</span>
+        <input
+          type="range"
+          className="pf-slider !h-6 !w-20"
+          min={0.65}
+          max={2.5}
+          step={0.05}
+          value={zoom}
+          onChange={(e) => onZoom(Number(e.target.value))}
+          aria-label="Zoom"
+        />
+        <span className="w-8 text-right font-mono text-[10px] text-slate-bark-400 tnum">{zoom.toFixed(1)}×</span>
       </label>
       <button
         type="button"
