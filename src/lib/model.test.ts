@@ -187,6 +187,16 @@ describe("doors", () => {
     }
   });
 
+  test("door counts above five are generated on both runs and included in the cut list", () => {
+    const m = buildModel({ ...base, frontDoors: 6, rightDoors: 6 });
+    expect(m.doors.filter((leaf) => leaf.side === "front")).toHaveLength(6);
+    expect(m.doors.filter((leaf) => leaf.side === "right")).toHaveLength(6);
+    expect(m.stats.sheetsDoor).toBe(12);
+    expect(m.cutList.find((item) => item.id === "doorpoly")?.qty).toBe(12);
+    expect(m.cutList.find((item) => item.id === "casing")?.qty).toBe(12);
+    expect(m.cutList.find((item) => item.id === "wheels")?.qty).toBe(24);
+  });
+
   test("a single leaf uses floor-level roller carriages and parks into the clear bay", () => {
     const m = buildModel({ ...base, frontDoors: 1, rightDoors: 0 });
     expect(m.doors).toHaveLength(1);
