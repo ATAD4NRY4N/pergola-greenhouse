@@ -13,6 +13,7 @@ import { XyzPad, OrbitControls } from "../components/ViewControls";
 import {
   DEFAULT_COMPONENT_VISIBILITY,
   DEFAULT_DESIGN,
+  SHEET_SHORT,
   buildModel,
   type Design,
 } from "./model";
@@ -392,5 +393,31 @@ describe("views handle missing sheets and steel", () => {
       <PlanView model={model} width={500} height={320} showSheets showFrame />,
     );
     expect(plan).toContain("<svg");
+  });
+
+  test("over-capacity doors render across two lanes without exceeding either run", () => {
+    const run = SHEET_SHORT * 3;
+    const model = buildModel({
+      ...DEFAULT_DESIGN,
+      width: run,
+      depthLeft: run,
+      depthRight: run,
+      frontDoors: 4,
+      rightDoors: 4,
+      frontDoorOffset: 0,
+      rightDoorOffset: 0,
+      doorOpen: 0.5,
+    });
+    expect(model.doors).toHaveLength(8);
+    expect(model.doors.every((leaf) => leaf.laneOffset !== 0)).toBe(true);
+    const axon = renderToStaticMarkup(
+      <Axonometric model={model} showSheets showSteel width={500} height={320} yaw={-38} tilt={58} />,
+    );
+    const front = renderToStaticMarkup(
+      <ElevationView model={model} side="front" width={500} height={320} showSteel />,
+    );
+    expect(axon).toContain("<svg");
+    expect(front).toContain("<svg");
+    expect(model.doors.every((leaf) => leaf.runStart >= 0 && leaf.runEnd <= run + 1e-8)).toBe(true);
   });
 });
