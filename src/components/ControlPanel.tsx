@@ -671,8 +671,9 @@ export function ControlPanel({
           </p>
           <p className="mt-1 text-[11px] leading-relaxed text-slate-bark-300">
             One whole 8 × 4 ft sheet per leaf, in aluminium U-channel casing.
-            Leaves overlap slightly for brush seals and run on schematic floor-level
-            rollers in a recessed channel. Confirm the complete hardware arrangement with the supplier.
+            Leaves stay side by side while the run has room; extra leaves overlap
+            on alternating parallel lanes. The two-lane floor channel is schematic —
+            confirm the complete hardware arrangement with the supplier.
           </p>
         </div>
         <Dim
@@ -686,7 +687,7 @@ export function ControlPanel({
         />
         <Dim
           label="Front — offset from left corner"
-          hint="Measured from the front-left corner along the straight front run."
+          hint="Measured from the front-left corner. The model limits the door set to the run; excess leaves overlap on two lanes."
           value={design.frontDoorOffset}
           min={0}
           max={10}
@@ -704,6 +705,7 @@ export function ControlPanel({
         />
         <Dim
           label="Right — offset from front corner"
+          hint="Measured back from the front-right corner. The model limits the door set to the run; excess leaves overlap on two lanes."
           value={design.rightDoorOffset}
           min={0}
           max={10}

@@ -197,6 +197,64 @@ describe("doors", () => {
     expect(m.cutList.find((item) => item.id === "wheels")?.qty).toBe(24);
   });
 
+  test("leaves fit exactly side by side up to capacity, then overlap within each run", () => {
+    const run = SHEET_SHORT * 3;
+    const m = buildModel({
+      ...base,
+      width: run,
+      depthLeft: 5,
+      depthRight: run,
+      frontDoors: 3,
+      rightDoors: 4,
+      frontDoorOffset: 0,
+      rightDoorOffset: 0,
+    });
+    const front = m.doors.filter((leaf) => leaf.side === "front");
+    const right = m.doors.filter((leaf) => leaf.side === "right");
+
+    expect(front).toHaveLength(3);
+    expect(front[0].runStart).toBeCloseTo(0, 8);
+    expect(front[1].runStart).toBeCloseTo(SHEET_SHORT, 8);
+    expect(front[2].runStart).toBeCloseTo(SHEET_SHORT * 2, 8);
+    expect(front[2].runEnd).toBeCloseTo(run, 8);
+    expect(m.warnings.some((warning) => warning.title.includes("Front door leaves overlap"))).toBe(false);
+
+    const pitch = (run - SHEET_SHORT) / 3;
+    expect(right[1].runStart - right[0].runStart).toBeCloseTo(pitch, 8);
+    expect(right[0].runEnd - right[1].runStart).toBeGreaterThan(0);
+    expect(right[3].runEnd).toBeCloseTo(run, 8);
+    expect(right.map((leaf) => leaf.laneOffset)).toEqual([
+      right[0].laneOffset,
+      -right[0].laneOffset,
+      right[0].laneOffset,
+      -right[0].laneOffset,
+    ]);
+    expect(m.warnings.some((warning) => warning.title.includes("Right door leaves overlap"))).toBe(true);
+
+    for (const leaf of [...front, ...right]) {
+      expect(leaf.runStart).toBeGreaterThanOrEqual(0);
+      expect(leaf.runEnd).toBeLessThanOrEqual(run + 1e-8);
+      const parkedStart = leaf.runStart + leaf.travel * leaf.slideDir;
+      expect(Math.min(parkedStart, parkedStart + leaf.width)).toBeGreaterThanOrEqual(-1e-8);
+      expect(Math.max(parkedStart, parkedStart + leaf.width)).toBeLessThanOrEqual(run + 1e-8);
+    }
+  });
+
+  test("offset is reduced when the selected door set would otherwise extend past its run", () => {
+    const run = SHEET_SHORT * 3;
+    const m = buildModel({
+      ...base,
+      width: run,
+      frontDoors: 3,
+      rightDoors: 0,
+      frontDoorOffset: 2,
+    });
+    const front = m.doors.filter((leaf) => leaf.side === "front");
+    expect(front[0].runStart).toBeCloseTo(0, 8);
+    expect(front[2].runEnd).toBeCloseTo(run, 8);
+    expect(m.warnings.some((warning) => warning.title.includes("offset limited"))).toBe(true);
+  });
+
   test("a single leaf uses floor-level roller carriages and parks into the clear bay", () => {
     const m = buildModel({ ...base, frontDoors: 1, rightDoors: 0 });
     expect(m.doors).toHaveLength(1);
@@ -345,18 +403,24 @@ describe("doors", () => {
     ).toBe(true);
   });
 
-  test("floor rollers sit in the recessed channel and leaves lap by the schematic overlap", () => {
-    const m = buildModel(base);
-    for (const leaf of m.doors.filter((item) => item.side === "front")) {
+  test("floor rollers use two alternating lanes when leaves overlap", () => {
+    const m = buildModel({
+      ...base,
+      width: SHEET_SHORT * 3,
+      frontDoors: 4,
+      rightDoors: 0,
+      frontDoorOffset: 0,
+    });
+    const leaves = m.doors.filter((item) => item.side === "front");
+    for (const leaf of leaves) {
       expect(leaf.carriages).toHaveLength(2);
       expect(leaf.carriages.every((carriage) => carriage.rollerCentres.length === 4)).toBe(true);
       const first = leaf.carriages[0].rollerCentres;
       expect(first.every((wheel) => wheel.z >= -FLOOR_TRACK_DEPTH && wheel.z <= 0)).toBe(true);
       expect(Math.abs(leaf.laneOffset)).toBeCloseTo(DOOR_OVERLAP / 2, 8);
     }
-    const [first, second] = m.doors.filter((leaf) => leaf.side === "front");
-    expect(first.runEnd - second.runStart).toBeCloseTo(DOOR_OVERLAP, 8);
-    expect(Math.abs(first.laneOffset - second.laneOffset)).toBeCloseTo(DOOR_OVERLAP, 8);
+    expect(leaves[0].runEnd - leaves[1].runStart).toBeGreaterThan(0);
+    expect(Math.abs(leaves[0].laneOffset - leaves[1].laneOffset)).toBeCloseTo(DOOR_OVERLAP, 8);
     expect(FLOOR_WHEEL_LANES).toHaveLength(2);
     expect(FLOOR_WHEEL_AXLE_OFFSETS).toHaveLength(2);
     expect(WHEEL_DIA).toBeGreaterThan(0);

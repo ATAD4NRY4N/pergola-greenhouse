@@ -949,10 +949,47 @@ export function buildModel(input: Design): Model {
     const headOf = (t: number) => leafTop(t);
 
     // --- door openings, expressed as [start, end] along the run ------
+    // Keep full-width leaves side by side while the run has room. Once the
+    // count exceeds that capacity, spread the leaves across the same bounded
+    // envelope so they overlap on the alternating parallel lanes.
+    const doorEnvelope = Math.min(spec.runLen, spec.leaves * leafW);
+    const doorPitch = spec.leaves > 1
+      ? Math.max(0, (doorEnvelope - leafW) / (spec.leaves - 1))
+      : 0;
+    const doorStart = Math.min(
+      Math.max(0, spec.offset),
+      Math.max(0, spec.runLen - doorEnvelope),
+    );
     const openings: [number, number][] = [];
     for (let i = 0; i < spec.leaves; i++) {
-      const s = spec.offset + i * (leafW - DOOR_OVERLAP);
+      const s = doorStart + i * doorPitch;
       openings.push([s, s + leafW]);
+    }
+
+    // A fixed 4 ft leaf cannot physically fit on a shorter run; keep it at
+    // the run end and report the unavoidable size conflict in the checks.
+    if (spec.leaves > 0 && spec.runLen < leafW) {
+      warnings.push({
+        level: "warn",
+        title: `A ${spec.side} door leaf is wider than its wall run`,
+        detail: `Each door leaf is ${leafW.toFixed(3)} m wide but the ${spec.side} run is only ${spec.runLen.toFixed(3)} m. A whole-sheet leaf cannot fit without being cut or changing the run.`,
+      });
+    }
+    if (spec.leaves > 0 && spec.offset > doorStart + 1e-6) {
+      warnings.push({
+        level: "warn",
+        title: `${spec.side === "front" ? "Front" : "Right"} door offset limited by the available run`,
+        detail: `The selected door count leaves ${doorEnvelope.toFixed(2)} m for the door set, so its start is kept at ${doorStart.toFixed(2)} m to stay within the ${spec.runLen.toFixed(2)} m run.`,
+      });
+    }
+
+    const sideBySideCapacity = Math.floor((spec.runLen + 1e-9) / leafW);
+    if (spec.leaves > sideBySideCapacity) {
+      warnings.push({
+        level: "info",
+        title: `${spec.side === "front" ? "Front" : "Right"} door leaves overlap on the two lanes`,
+        detail: `${spec.leaves} fixed-width leaves exceed the ${sideBySideCapacity}-leaf side-by-side capacity of the ${spec.runLen.toFixed(2)} m run. They overlap on alternating lanes and remain within the run.`,
+      });
     }
 
     // --- studs: even centres plus a jamb either side of each opening --
@@ -1052,7 +1089,7 @@ export function buildModel(input: Design): Model {
       const singleLeafClearance = leafW + 0.02;
       const park = spec.leaves === 1
         ? Math.min(singleLeafClearance, slideDir === -1 ? availableBefore : availableAfter)
-        : i * (leafW - DOOR_OVERLAP);
+        : (slideDir === -1 ? i : spec.leaves - 1 - i) * doorPitch;
       const q0 = spec.toWorld(s + park * slideDir, laneOffset);
       const q1 = spec.toWorld(e + park * slideDir, laneOffset);
       const parkedStart = s + park * slideDir;
@@ -1569,22 +1606,6 @@ export function buildModel(input: Design): Model {
       level: "warn",
       title: `Door head clearance is only ${Math.round(doorHeadClearance * 1000)} mm`,
       detail: "Check the U-channel casing, brush seals and floor-wheel adjustment against the low eave before fixing final dimensions.",
-    });
-  }
-
-  const frontRun = W;
-  if (d.frontDoors * DOOR_LEAF_W + d.frontDoorOffset > frontRun + 0.4) {
-    warnings.push({
-      level: "warn",
-      title: "Front doors run past the end of the front wall",
-      detail: `The opening needs about ${(d.frontDoorOffset + d.frontDoors * DOOR_LEAF_W).toFixed(2)} m of an ${frontRun.toFixed(2)} m run.`,
-    });
-  }
-  if (d.rightDoors * DOOR_LEAF_W + d.rightDoorOffset > dR + 0.4) {
-    warnings.push({
-      level: "warn",
-      title: "Right doors run past the end of the right wall",
-      detail: `The opening needs about ${(d.rightDoorOffset + d.rightDoors * DOOR_LEAF_W).toFixed(2)} m of a ${dR.toFixed(2)} m run.`,
     });
   }
 
