@@ -679,7 +679,7 @@ export function ControlPanel({
           label="Front — leaves"
           value={design.frontDoors}
           min={0}
-          max={5}
+          max={10}
           step={1}
           unit="no."
           onChange={(v) => set("frontDoors", Math.round(v))}
@@ -697,7 +697,7 @@ export function ControlPanel({
           label="Right — leaves"
           value={design.rightDoors}
           min={0}
-          max={5}
+          max={10}
           step={1}
           unit="no."
           onChange={(v) => set("rightDoors", Math.round(v))}
