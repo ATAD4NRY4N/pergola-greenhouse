@@ -275,7 +275,7 @@ export function DesignerApp({
 
             <span className="mx-1 h-4 w-px bg-slate-bark-800" />
 
-            {COMPONENT_CATEGORIES.filter((component) => component.id !== "sheets" && component.id !== "aluminium-trim" && component.id !== "fixings").map((component) => (
+            {COMPONENT_CATEGORIES.filter((component) => component.id !== "sheets" && component.id !== "aluminium-trim" && component.id !== "fixings" && component.id !== "wall-framing").map((component) => (
               <ToggleChip
                 key={component.id}
                 on={componentVisibility[component.id]}
@@ -412,7 +412,7 @@ export function DesignerApp({
             )}
 
             <div className="pointer-events-none absolute bottom-3 left-3 flex flex-wrap gap-x-4 gap-y-1 rounded-md border border-slate-bark-800 bg-slate-bark-950/80 px-3 py-2 backdrop-blur">
-              {COMPONENT_CATEGORIES.filter((component) => componentVisibility[component.id]).map((component) => (
+              {COMPONENT_CATEGORIES.filter((component) => component.id !== "wall-framing" && componentVisibility[component.id]).map((component) => (
                 <span
                   key={component.id}
                   className="flex items-center gap-1.5 font-mono text-[10px] text-slate-bark-400"

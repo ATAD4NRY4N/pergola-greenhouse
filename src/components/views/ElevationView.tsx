@@ -287,36 +287,6 @@ function GlazedElevationView({
             stroke="#49c2a7"
             strokeWidth={Math.max(2, (d.ringDepth / 1000) * t.scale)}
           />}
-          {/* sill rail */}
-          {componentVisible(visibility, "wall-framing") && <line
-            x1={sx(0)}
-            y1={sy(d.sillHeight)}
-            x2={sx(runLen)}
-            y2={sy(d.sillHeight)}
-            stroke="#99bd70"
-            strokeWidth={2.6}
-          />}
-          {/* studs */}
-          {componentVisible(visibility, "wall-framing") && model.members
-            .filter((m) => m.kind === "stud")
-            .filter((m) => side === "front"
-              ? Math.abs(m.a.y - model.plan.fl.y) < 0.01
-              : Math.abs(m.a.x - d.width) < 0.01)
-            .map((m) => {
-              const u = side === "right" ? model.plan.fr.y - m.a.y : m.a.x;
-              return (
-                <line
-                  key={m.id}
-                  x1={sx(u)}
-                  y1={sy(d.sillHeight)}
-                  x2={sx(u)}
-                  y2={sy(leafTopOf(u))}
-                  stroke="#99bd70"
-                  strokeOpacity={0.85}
-                  strokeWidth={1.6}
-                />
-              );
-            })}
           {/* posts */}
           {componentVisible(visibility, "posts") && model.posts
             .filter((p) =>
@@ -641,16 +611,6 @@ export function SectionView({
       })}
 
       {/* Wall framing and front/back knee braces visible in section. */}
-      {componentVisible(visibility, "wall-framing") && (
-        <>
-          {model.members.filter((member) => member.kind === "sill").map((member) => (
-            <line key={member.id} x1={sx(member.a.x)} y1={sy(d.sillHeight)} x2={sx(member.b.x)} y2={sy(d.sillHeight)} stroke="#99bd70" strokeWidth={2.5} />
-          ))}
-          {model.members.filter((member) => member.kind === "stud" && Math.abs(member.a.y - model.plan.fl.y) < 0.02).map((member) => (
-            <rect key={member.id} x={sx(member.a.x) - 1.5} y={sy(member.b.z)} width={3} height={sy(member.a.z) - sy(member.b.z)} fill="#99bd70" fillOpacity={0.75} />
-          ))}
-        </>
-      )}
       {componentVisible(visibility, "braces") && model.members
         .filter((member) => member.kind === "brace" && Math.abs(member.a.y - member.b.y) < 0.02)
         .map((member) => {

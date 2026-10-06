@@ -196,29 +196,6 @@ export function PlanView({
                 </g>
               );
             })}
-          {/* wall studs on the two glazed runs */}
-          {componentVisible(visibility, "wall-framing") && model.members
-            .filter((m) => m.kind === "stud")
-            .map((m) => {
-              const p = S({ x: m.a.x, y: m.a.y });
-              const onFront = Math.abs(m.a.y - model.plan.fl.y) < 0.01;
-              const onRight = Math.abs(m.a.x - d.width) < 0.01;
-              return (
-                <g key={m.id}>
-                  <circle
-                    cx={p.x}
-                    cy={p.y}
-                    r={3.2}
-                    fill="var(--color-slate-bark-900)"
-                    stroke="#99bd70"
-                    strokeWidth={1.4}
-                  />
-                  {(onFront || onRight) && (
-                    <circle cx={p.x} cy={p.y} r={1.2} fill="#99bd70" />
-                  )}
-                </g>
-              );
-            })}
         </>
       )}
 
