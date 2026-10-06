@@ -1022,6 +1022,13 @@ export function buildModel(input: Design): Model {
 
     // --- vertical studs ----------------------------------------------
     for (const t of studs) {
+      // No fixed wall stud should pass through the clear opening of a sliding leaf.
+      // Keep studs exactly at the opening edges to act as jamb supports.
+      const insideDoorOpening = openings.some(
+        ([start, end]) => t > start + 1e-6 && t < end - 1e-6,
+      );
+      if (insideDoorOpening) continue;
+
       const p = spec.toWorld(t);
       const top = headOf(t);
       members.push({

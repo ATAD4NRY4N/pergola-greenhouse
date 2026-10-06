@@ -202,12 +202,12 @@ function GlazedElevationView({
               width={x1 - x0}
               height={sy(bot) - sy(top)}
               fill="#67cbe3"
-              fillOpacity={0.2}
+              fillOpacity={0.32}
               stroke="#67cbe3"
               strokeWidth={1.4}
             />
             {/* polycarb ribs */}
-            <g clipPath={`url(#${clipId})`} opacity={0.4}>
+            <g clipPath={`url(#${clipId})`} opacity={0.52}>
               {Array.from({ length: 9 }).map((_, i) => (
                 <line
                   key={i}
@@ -299,6 +299,9 @@ function GlazedElevationView({
           {/* studs */}
           {componentVisible(visibility, "wall-framing") && model.members
             .filter((m) => m.kind === "stud")
+            .filter((m) => side === "front"
+              ? Math.abs(m.a.y - model.plan.fl.y) < 0.01
+              : Math.abs(m.a.x - d.width) < 0.01)
             .map((m) => {
               const u = side === "right" ? model.plan.fr.y - m.a.y : m.a.x;
               return (

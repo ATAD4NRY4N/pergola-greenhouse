@@ -205,8 +205,8 @@ export function Axonometric({
           <stop offset="100%" stopColor="#36a56c" stopOpacity="0.16" />
         </linearGradient>
         <linearGradient id="doorSheen" x1="0" y1="0" x2="0" y2="1">
-          <stop offset="0%" stopColor="#f2d08a" stopOpacity="0.4" />
-          <stop offset="100%" stopColor="#c8903a" stopOpacity="0.22" />
+          <stop offset="0%" stopColor="#f2d08a" stopOpacity="0.62" />
+          <stop offset="100%" stopColor="#c8903a" stopOpacity="0.38" />
         </linearGradient>
       </defs>
 
