@@ -304,6 +304,22 @@ describe("Front elevation door-only sheet visibility", () => {
   });
 });
 
+describe("sliding doors render clearly in their own elevation", () => {
+  test("shows a distinct door panel and only studs from the selected wall run", () => {
+    const model = buildModel({ ...DEFAULT_DESIGN, frontDoors: 1, rightDoors: 0 });
+    const frontStudCount = model.members.filter((member) =>
+      member.kind === "stud" && Math.abs(member.a.y - model.plan.fl.y) < 0.01,
+    ).length;
+    const html = renderToStaticMarkup(
+      <ElevationView model={model} side="front" width={900} height={500} showSteel />,
+    );
+
+    expect(html).toContain('fill-opacity="0.32"');
+    expect((html.match(/stroke="#99bd70"/g) ?? []).length).toBe(frontStudCount + 1);
+    expect(html).toContain("1,219×2,438");
+  });
+});
+
 describe("views handle missing sheets and steel", () => {
   test("component visibility hides its geometry in every drawing", () => {
     const model = buildModel(DEFAULT_DESIGN);
