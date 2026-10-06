@@ -255,25 +255,17 @@ describe("doors", () => {
     expect(m.warnings.some((warning) => warning.title.includes("offset limited"))).toBe(true);
   });
 
-  test("wall studs stop at door jambs instead of crossing the leaf opening", () => {
-    const m = buildModel(base);
-    for (const side of ["front", "right"] as const) {
-      const runOf = (point: { x: number; y: number }) =>
-        side === "front" ? point.x : m.plan.fr.y - point.y;
-      const studs = m.members
-        .filter((member) => member.kind === "stud")
-        .filter((member) => side === "front"
-          ? Math.abs(member.a.y - m.plan.fl.y) < 0.01
-          : Math.abs(member.a.x - m.design.width) < 0.01)
-        .map((member) => runOf(member.a));
-      const leaves = m.doors.filter((leaf) => leaf.side === side);
-
-      for (const leaf of leaves) {
-        expect(studs.some((station) => station > leaf.runStart + 1e-6 && station < leaf.runEnd - 1e-6)).toBe(false);
-        expect(studs.some((station) => Math.abs(station - leaf.runStart) < 1e-6)).toBe(true);
-        expect(studs.some((station) => Math.abs(station - leaf.runEnd) < 1e-6)).toBe(true);
-      }
-    }
+  test("front and right runs have sliding doors only and no fixed wall or glazing", () => {
+    const m = buildModel({ ...base, glazeRight: true, glazeFront: true });
+    expect(m.members.filter((member) => member.kind === "stud" || member.kind === "sill")).toHaveLength(0);
+    expect(m.panels.filter((panel) => panel.kind === "wall")).toHaveLength(0);
+    expect(m.cutList.find((item) => item.id === "studs")).toBeUndefined();
+    expect(m.cutList.find((item) => item.id === "sills")).toBeUndefined();
+    expect(m.cutList.find((item) => item.id === "wallpoly")).toBeUndefined();
+    expect(m.wallBays.every((bay) => bay.type !== "glazed")).toBe(true);
+    expect(m.doors.filter((leaf) => leaf.side === "front")).toHaveLength(base.frontDoors);
+    expect(m.doors.filter((leaf) => leaf.side === "right")).toHaveLength(base.rightDoors);
+    expect(m.members.filter((member) => member.kind === "floor-track")).toHaveLength(2);
   });
 
   test("a single leaf uses floor-level roller carriages and parks into the clear bay", () => {

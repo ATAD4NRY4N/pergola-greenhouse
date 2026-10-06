@@ -401,14 +401,6 @@ export function ControlPanel({
           step={0.05}
           onChange={(v) => set("roofOverhang", v)}
         />
-        <Dim
-          label="Sill height"
-          value={design.sillHeight}
-          min={0}
-          max={1.2}
-          step={0.05}
-          onChange={(v) => set("sillHeight", v)}
-        />
       </Section>
 
       <Section title="Posts & perimeter ring" icon={<Boxes className="size-3.5" />}>
@@ -657,11 +649,6 @@ export function ControlPanel({
             />
           </>
         )}
-        <Toggle
-          label="Glaze the right run"
-          checked={design.glazeRight}
-          onChange={(v) => set("glazeRight", v)}
-        />
       </Section>
 
       <Section title="Sliding doors" icon={<DoorOpen className="size-3.5" />}>

@@ -94,9 +94,9 @@ export interface Design {
   roofLoadKpa: number; // kN/m² downward characteristic pressure on plan area
   steelYieldMpa: number; // nominal steel yield strength from product certificate
 
-  /* Wall framing (front + left) */
-  studSpacing: number; // m centres
-  sillHeight: number; // m
+  /* Legacy fixed-wall settings retained for older saved designs; front/right are door-only. */
+  studSpacing: number; // m centres (legacy, unused)
+  sillHeight: number; // m (legacy, unused)
 
   /* Polycarbonate */
   polyWall: PolyWall;
@@ -116,8 +116,8 @@ export interface Design {
   aluminiumTrimSize: number; // mm, U-channel face width around the door leaves
   fixingDiameter: number; // mm, illustrative tek screw / bolt head
   fixingSpacing: number; // m centres for roof sheet fasteners
-  glazeFront: boolean;
-  glazeRight: boolean;
+  glazeFront: boolean; // legacy saved-design field; ignored on door-only run
+  glazeRight: boolean; // legacy saved-design field; ignored on door-only run
 
   /* Corner fixings */
   corners: Record<CornerId, CornerFix>;
@@ -162,7 +162,7 @@ export const DEFAULT_DESIGN: Design = {
   fixingDiameter: 6,
   fixingSpacing: 0.6,
   glazeFront: false,
-  glazeRight: true,
+  glazeRight: false,
   // Front corners are square, back corners are skewed by the offset.
   corners: { bl: "adjustable", br: "adjustable", fl: "rigid90", fr: "rigid90" },
 };
@@ -906,7 +906,7 @@ export function buildModel(input: Design): Model {
     }
   }
 
-  /* ---------------- Wall framing + glazing + doors ------------------ */
+  /* ---------------- Door-only front and right runs ---------------- */
 
   const wallBays: WallBay[] = [];
   const doors: DoorLeaf[] = [];
@@ -916,7 +916,6 @@ export function buildModel(input: Design): Model {
     offset: number;
     runLen: number;
     toWorld: (t: number, laneOffset?: number) => { x: number; y: number };
-    glazed: boolean;
   }[] = [];
 
   doorSpecs.push({
@@ -925,7 +924,6 @@ export function buildModel(input: Design): Model {
     offset: d.frontDoorOffset,
     runLen: W,
     toWorld: (t, laneOffset = 0) => ({ x: t, y: frontY - laneOffset }),
-    glazed: false,
   });
 
   doorSpecs.push({
@@ -934,7 +932,6 @@ export function buildModel(input: Design): Model {
     offset: d.rightDoorOffset,
     runLen: dR,
     toWorld: (t, laneOffset = 0) => ({ x: W - laneOffset, y: frontY - t }),
-    glazed: d.glazeRight,
   });
 
   const doorLeafCount = d.frontDoors + d.rightDoors;
@@ -945,7 +942,6 @@ export function buildModel(input: Design): Model {
     const supportTrack = floorTrackBySide.get(spec.side)!;
     const leafBottom = (_t: number) => FLOOR_LEAF_BOTTOM;
     const leafTop = (_t: number) => FLOOR_LEAF_BOTTOM + leafH;
-    /** Wall framing stops at the fixed-size leaf head on this run. */
     const headOf = (t: number) => leafTop(t);
 
     // --- door openings, expressed as [start, end] along the run ------
@@ -992,81 +988,33 @@ export function buildModel(input: Design): Model {
       });
     }
 
-    // --- studs: even centres plus a jamb either side of each opening --
-    const studAt: number[] = [0];
-    const nStuds = Math.max(1, Math.ceil(spec.runLen / d.studSpacing));
-    for (let i = 1; i < nStuds; i++) studAt.push((spec.runLen * i) / nStuds);
-    for (const [s, e] of openings) {
-      studAt.push(Math.max(0, s - 0.06), Math.min(spec.runLen, e + 0.06));
-    }
-    for (const [s, e] of openings) studAt.push(s, e);
-    const studs = [...new Set(studAt.map((v) => Math.round(v * 1000) / 1000))]
-      .filter((v) => v >= -1e-6 && v <= spec.runLen + 1e-6)
+    // Run endpoints and leaf edges describe open intervals, not fixed walls.
+    const bayStations = [...new Set([0, spec.runLen, ...openings.flatMap(([s, e]) => [s, e])]
+      .map((v) => Math.round(v * 1000) / 1000))]
       .sort((a, b) => a - b);
 
-    // --- sill rail -----------------------------------------------------
-    members.push({
-      id: mid_(),
-      kind: "sill",
-      a: (() => {
-        const p = spec.toWorld(0);
-        return { x: p.x, y: p.y, z: d.sillHeight };
-      })(),
-      b: (() => {
-        const p = spec.toWorld(spec.runLen);
-        return { x: p.x, y: p.y, z: d.sillHeight };
-      })(),
-      length: spec.runLen,
-      label: `C${d.ringDepth}\u00d7${d.ringGauge} sill`,
-    });
-
-    // --- vertical studs ----------------------------------------------
-    for (const t of studs) {
-      // No fixed wall stud should pass through the clear opening of a sliding leaf.
-      // Keep studs exactly at the opening edges to act as jamb supports.
-      const insideDoorOpening = openings.some(
-        ([start, end]) => t > start + 1e-6 && t < end - 1e-6,
-      );
-      if (insideDoorOpening) continue;
-
-      const p = spec.toWorld(t);
-      const top = headOf(t);
-      members.push({
-        id: mid_(),
-        kind: "stud",
-        a: { x: p.x, y: p.y, z: d.sillHeight },
-        b: { x: p.x, y: p.y, z: top },
-        length: top - d.sillHeight,
-        label: `C${d.ringDepth}\u00d7${d.ringGauge}`,
-      });
-    }
-
-    // --- bays between studs ------------------------------------------
-    for (let i = 0; i < studs.length - 1; i++) {
-      const t0 = studs[i];
-      const t1 = studs[i + 1];
+    for (let i = 0; i < bayStations.length - 1; i++) {
+      const t0 = bayStations[i];
+      const t1 = bayStations[i + 1];
       const c = (t0 + t1) / 2;
       const isDoor = openings.some(([s, e]) => c > s && c < e);
       const pa = spec.toWorld(t0);
       const pb = spec.toWorld(t1);
       const poly: Vec3[] = [
-        { x: pa.x, y: pa.y, z: d.sillHeight },
-        { x: pb.x, y: pb.y, z: d.sillHeight },
+        { x: pa.x, y: pa.y, z: 0 },
+        { x: pb.x, y: pb.y, z: 0 },
         { x: pb.x, y: pb.y, z: headOf(t1) },
         { x: pa.x, y: pa.y, z: headOf(t0) },
       ];
       wallBays.push({
         id: `bay-${spec.side}-${i}`,
         side: spec.side,
-        type: isDoor ? "door" : spec.glazed ? "glazed" : "open",
+        type: isDoor ? "door" : "open",
         poly,
         centre: c,
         width: t1 - t0,
-        height: headOf(t1) - d.sillHeight,
+        height: headOf(t1),
       });
-      if (!isDoor && spec.glazed) {
-        panels.push({ id: `wp-${spec.side}-${i}`, kind: "wall", poly, opacity: 0.18 });
-      }
     }
 
     // --- sliding doors ------------------------------------------------
@@ -1417,28 +1365,6 @@ export function buildModel(input: Design): Model {
   });
 
   cutList.push({
-    id: "studs",
-    group: "Steel",
-    item: "Wall studs, front & left",
-    spec: `C${d.ringDepth}\u00d7${d.ringGauge} mm`,
-    qty: members.filter((m) => m.kind === "stud").length,
-    unit: "lengths",
-    lengthMm: Math.ceil((zL - d.ringDepth / 1000 - 0.25 - d.sillHeight) * 1000),
-    note: "Cut to suit; each side varies with the fall.",
-  });
-
-  cutList.push({
-    id: "sills",
-    group: "Steel",
-    item: "Sill / base rails",
-    spec: `C${d.ringDepth}\u00d7${d.ringGauge} mm`,
-    qty: 2,
-    unit: "lengths",
-    lengthMm: Math.ceil((W + dL) * 500),
-    note: "Cut into two, one per glazed run.",
-  });
-
-  cutList.push({
     id: "braces",
     group: "Steel",
     item: "Knee braces",
@@ -1508,17 +1434,6 @@ export function buildModel(input: Design): Model {
     note: `${roofFull} whole, ${roofCut} trimmed to the trapezoid edge.`,
   });
 
-  const wallGlazed = wallBays.filter((b) => b.type === "glazed").length;
-  cutList.push({
-    id: "wallpoly",
-    group: "Polycarbonate",
-    item: "Fixed wall panels (front & left)",
-    spec: `2438 \u00d7 1219 mm`,
-    qty: wallGlazed,
-    unit: "sheets",
-    note: "Cut to the head rail; allow 10 mm expansion gap all round.",
-  });
-
   cutList.push({
     id: "doorpoly",
     group: "Polycarbonate",
@@ -1537,7 +1452,6 @@ export function buildModel(input: Design): Model {
     spec: "6 \u00d7 16 mm, low-profile head",
     qty: Math.round(
       (roofSheets.length * 9 +
-        wallGlazed * 6 +
         sheetCount * 10 +
         8) *
         1.1,
@@ -1637,18 +1551,12 @@ export function buildModel(input: Design): Model {
   /* ---------------- Stats -------------------------------------------- */
 
   const roofArea = polyArea(structureClip) * Math.sqrt(1 + Math.pow((zR - zL) / W, 2));
-  const glazedArea =
-    wallBays
-      .filter((b) => b.type === "glazed")
-      .reduce((a, b) => a + b.width * b.height, 0) / 1000;
+  const glazedArea = 0;
 
-  const channelMetres = members
-    .filter((member) => member.kind === "stud" || member.kind === "sill")
-    .reduce((sum, member) => sum + member.length, 0);
   const steelKg =
     cSteelKgPerM(d.ringDepth, d.ringGauge) *
       (ringInfo.reduce((sum, run) => sum + run.len * (run.build === "double" ? 2 : 1), 0) +
-        perimeterRailLength + channelMetres) +
+        perimeterRailLength) +
     zSteelKgPerM(d.roofPurlinDepth, d.roofPurlinGauge) *
       (purlins.reduce((sum, member) => sum + member.length, 0) +
         girders.reduce((sum, member) => sum + member.length, 0)) +
@@ -1660,9 +1568,9 @@ export function buildModel(input: Design): Model {
     glazedArea,
     sheetsRoofFull: roofFull,
     sheetsRoofCut: roofCut,
-    sheetsWall: wallGlazed,
+    sheetsWall: 0,
     sheetsDoor: sheetCount,
-    totalSheets: roofSheets.length + wallGlazed + sheetCount,
+    totalSheets: roofSheets.length + sheetCount,
     steelMetres: members.reduce((a, m) => a + m.length, 0),
     steelKg: Math.round(steelKg),
     governingPurlinSpan: governingSpan,
