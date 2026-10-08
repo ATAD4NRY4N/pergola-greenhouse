@@ -1,4 +1,9 @@
 import type { CornerFix, CornerId, Design, PolyWall, RingBuild } from "../lib/model";
+import {
+  optimisationInputs,
+  optimiseDesign,
+  type OptimisationResult,
+} from "../lib/optimise";
 import { Badge, Button, Input, Label } from "./ui";
 import { cn, mmNum } from "../lib/utils";
 import {
@@ -9,6 +14,7 @@ import {
   Boxes,
   RotateCcw,
   Factory,
+  Gauge,
   TriangleAlert,
   Minus,
   Plus,
@@ -292,6 +298,23 @@ export function ControlPanel({
   const setCorner = (id: CornerId, fix: CornerFix) =>
     onChange({ corners: { ...design.corners, [id]: fix } });
 
+  const [optimisation, setOptimisation] = useState<OptimisationResult | null>(null);
+  const inputsKey = JSON.stringify(optimisationInputs(design));
+  const stale = optimisation !== null && JSON.stringify(optimisation.inputs) !== inputsKey;
+  const patch = optimisation?.patch ?? {};
+  const hasPatch = Object.keys(patch).length > 0;
+  const applied =
+    hasPatch &&
+    (Object.keys(patch) as (keyof Design)[]).every(
+      (key) => design[key] === (patch as Design)[key],
+    );
+  const steelDelta =
+    optimisation?.ok && optimisation.before.steelKg > 0
+      ? ((optimisation.after.steelKg - optimisation.before.steelKg) /
+          optimisation.before.steelKg) *
+        100
+      : 0;
+
   // The front run is straight, so both front corners are a true 90 deg and any
   // skew lands on the back, where the back-left corner reaches further out.
   const frontRun = design.width;
@@ -537,6 +560,96 @@ export function ControlPanel({
           simple elastic beam screen only; they do not include wind uplift,
           buckling, connections or manufacturer section properties.
         </p>
+      </Section>
+
+      <Section title="Optimise framing" icon={<Gauge className="size-3.5" />}>
+        <p className="font-mono text-[10px] leading-relaxed text-slate-bark-500">
+          Once the footprint, eaves, door count, roof load and steel grade are
+          confirmed, this sizes the Z purlins, girder count and perimeter post
+          count to the lightest standard arrangement that still passes the roof
+          screen. Material is reduced until the structure is safe — never past
+          it, and never left over-engineered.
+        </p>
+        <Button
+          variant="outline"
+          size="sm"
+          className="w-full"
+          onClick={() => setOptimisation(optimiseDesign(design))}
+        >
+          <Gauge className="size-3.5" />
+          Calculate optimal framing
+        </Button>
+
+        {optimisation && stale && (
+          <p className="rounded-md border border-brass-400/30 bg-brass-400/5 px-3 py-2 font-mono text-[10px] leading-relaxed text-brass-300">
+            The confirmed inputs changed since this calculation — run it again
+            to refresh the numbers.
+          </p>
+        )}
+
+        {optimisation && !optimisation.ok && (
+          <div className="rounded-md border border-red-500/40 bg-red-500/5 px-3 py-2.5">
+            <p className="text-xs font-medium text-red-300">
+              No safe arrangement in the standard range
+            </p>
+            {optimisation.notes.map((note) => (
+              <p
+                key={note}
+                className="mt-1.5 font-mono text-[10px] leading-relaxed text-slate-bark-400"
+              >
+                {note}
+              </p>
+            ))}
+          </div>
+        )}
+
+        {optimisation && optimisation.ok && (
+          <div className="space-y-2 rounded-md border border-slate-bark-800 bg-slate-bark-950/60 p-2.5">
+            <div className="flex items-center justify-between gap-2">
+              <p className="text-xs font-medium text-slate-bark-200">
+                Lightest safe framing
+              </p>
+              <Badge tone={steelDelta <= 0 ? "green" : "brass"}>
+                {steelDelta <= 0 ? "" : "+"}
+                {steelDelta.toFixed(0)}% steel
+              </Badge>
+            </div>
+
+            <ul className="space-y-1">
+              {optimisation.changes.map((line) => (
+                <li
+                  key={line}
+                  className="font-mono text-[10px] leading-relaxed text-slate-bark-300"
+                >
+                  <span className="text-canopy-400">→</span> {line}
+                </li>
+              ))}
+            </ul>
+
+            <ul className="space-y-1 border-t border-slate-bark-800 pt-2">
+              {optimisation.notes.map((note) => (
+                <li
+                  key={note}
+                  className="font-mono text-[10px] leading-relaxed text-slate-bark-500"
+                >
+                  {note}
+                </li>
+              ))}
+            </ul>
+
+            {hasPatch && !stale && (
+              <Button
+                variant="outline"
+                size="sm"
+                className="w-full"
+                disabled={applied}
+                onClick={() => onChange(optimisation.patch)}
+              >
+                {applied ? "Applied to the design" : "Apply to the design"}
+              </Button>
+            )}
+          </div>
+        )}
       </Section>
 
       <Section
