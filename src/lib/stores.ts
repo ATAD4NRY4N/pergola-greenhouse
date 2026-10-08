@@ -45,7 +45,7 @@ function writeAll(list: SavedDesign[]) {
   }
 }
 
-/** Browser-local store used when no Convex deployment is configured. */
+/** Browser-local design storage — no accounts, no cloud. */
 export function useLocalStore(): DesignStore {
   const [designs, setDesigns] = useState<SavedDesign[]>([]);
   const [ready, setReady] = useState(false);

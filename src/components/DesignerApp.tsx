@@ -1,5 +1,4 @@
 import { useCallback, useMemo, useState, type ReactNode } from "react";
-import { Link } from "react-router-dom";
 
 import {
   COMPONENT_CATEGORIES,
@@ -35,8 +34,6 @@ import {
   Eye,
   Grid3x3,
   Leaf,
-  X,
-  CloudOff,
   DoorOpen,
   Home,
 } from "lucide-react";
@@ -62,15 +59,7 @@ const SIDES: { key: SideKey; label: string; icon: typeof Boxes }[] = [
   { key: "build", label: "Build plan", icon: Home },
 ];
 
-export function DesignerApp({
-  store,
-  sessionLabel,
-  onSignOut,
-}: {
-  store: DesignStore;
-  sessionLabel: string;
-  onSignOut?: () => void;
-}) {
+export function DesignerApp({ store }: { store: DesignStore }) {
   const [design, setDesign] = useState<Design>(() => ({
     ...DEFAULT_DESIGN,
     name: DEFAULT_DESIGN.name,
@@ -138,15 +127,12 @@ export function DesignerApp({
     <div className="flex h-screen flex-col overflow-hidden bg-slate-bark-950">
       {/* ---------------- top bar ---------------- */}
       <header className="flex shrink-0 flex-wrap items-center gap-x-3 gap-y-2 border-b border-slate-bark-800 bg-slate-bark-900/80 px-3 py-2 backdrop-blur">
-        <Link
-          to="/"
-          className="flex items-center gap-2 pr-1 text-canopy-300 transition-colors hover:text-canopy-200"
-        >
+        <div className="flex items-center gap-2 pr-1 text-canopy-300">
           <Leaf className="size-4" />
           <span className="hidden font-mono text-xs font-semibold uppercase tracking-[0.2em] sm:inline">
             Polyframe
           </span>
-        </Link>
+        </div>
 
         <div className="min-w-0 flex-1 basis-56">
           <input
@@ -221,30 +207,6 @@ export function DesignerApp({
           <Save className="size-3.5" />
           Save
         </Button>
-
-        <div className="flex items-center gap-2 border-l border-slate-bark-800 pl-3">
-          <span className="hidden max-w-[9rem] truncate font-mono text-[10px] text-slate-bark-500 md:inline">
-            {sessionLabel}
-          </span>
-          {onSignOut ? (
-            <button
-              onClick={onSignOut}
-              aria-label="Sign out"
-              title="Sign out"
-              className="rounded-md p-1.5 text-slate-bark-400 transition-colors hover:bg-slate-bark-800 hover:text-slate-bark-100"
-            >
-              <X className="size-4" />
-            </button>
-          ) : (
-            <span
-              title="Saved in this browser only"
-              className="flex items-center gap-1 rounded-md px-2 py-1 font-mono text-[10px] text-slate-bark-500"
-            >
-              <CloudOff className="size-3.5" />
-              <span className="hidden lg:inline">local</span>
-            </span>
-          )}
-        </div>
       </header>
 
       {/* ---------------- body ---------------- */}

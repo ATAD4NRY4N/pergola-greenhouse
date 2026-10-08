@@ -1,13 +1,11 @@
 /// <reference types="bun" />
 import { describe, expect, test } from "bun:test";
 import { renderToStaticMarkup } from "react-dom/server";
-import { MemoryRouter } from "react-router-dom";
 import { Axonometric } from "../components/views/Axonometric";
 import { PlanView } from "../components/views/PlanView";
 import { ElevationView, SectionView } from "../components/views/ElevationView";
 import { DoorDetailView } from "../components/views/DoorDetailView";
 import { BuildPlanPanel, ChecksPanel } from "../components/panels";
-import { Landing } from "../pages/Landing";
 import { Designer } from "../components/Designer";
 import { XyzPad, OrbitControls } from "../components/ViewControls";
 import {
@@ -121,25 +119,9 @@ describe("single sliding-door detail sheet", () => {
   });
 });
 
-describe("full pages render without throwing", () => {
-  test("landing page", () => {
-    const html = renderToStaticMarkup(
-      <MemoryRouter>
-        <Landing />
-      </MemoryRouter>,
-    );
-    expect(html).toContain("Polyframe");
-    expect(html).toContain("<svg");
-    expect(html).toContain("/auth?returnTo=/designer");
-    expect(html.length).toBeGreaterThan(2000);
-  });
-
-  test("designer workspace", () => {
-    const html = renderToStaticMarkup(
-      <MemoryRouter>
-        <Designer />
-      </MemoryRouter>,
-    );
+describe("the designer is the whole app", () => {
+  test("designer workspace renders with no account or marketing surfaces", () => {
+    const html = renderToStaticMarkup(<Designer />);
     expect(html).toContain("Dimensions");
     expect(html).toContain("Cut list");
     expect(html).toContain("Front");
@@ -147,6 +129,20 @@ describe("full pages render without throwing", () => {
     expect(html).toContain("Build plan");
     expect(html).toContain("Perimeter ring");
     expect(html).toContain("<svg");
+    // No SaaS surfaces: sign-in/sign-out, auth routes or cloud badges.
+    expect(html).not.toContain("Sign in");
+    expect(html).not.toContain("Sign out");
+    expect(html).not.toContain("/auth");
+    expect(html).not.toContain("Create account");
+  });
+
+  test("designer exposes the framing optimiser beside the roof frame controls", () => {
+    const html = renderToStaticMarkup(<Designer />);
+    expect(html).toContain("Optimise framing");
+    expect(html).toContain("Calculate optimal framing");
+    expect(html).toContain("lightest standard arrangement");
+    expect(html.indexOf("Optimise framing")).toBeGreaterThan(html.indexOf("Roof Z frame"));
+    expect(html.indexOf("Optimise framing")).toBeLessThan(html.indexOf("Polycarbonate &amp; fixings"));
   });
 });
 
