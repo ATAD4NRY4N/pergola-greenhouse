@@ -14,9 +14,23 @@ import { ElevationView, SectionView } from "./views/ElevationView";
 import { DoorDetailView } from "./views/DoorDetailView";
 import { ControlPanel } from "./ControlPanel";
 import { OrbitControls, XyzPad } from "./ViewControls";
-import { BuildPlanPanel, ChecksPanel, CutListPanel, SourcingPanel } from "./panels";
+import {
+  BuildPlanPanel,
+  ChecksPanel,
+  CutListPanel,
+  PricingPanel,
+  SourcingPanel,
+} from "./panels";
 import { Badge, Button, Card } from "./ui";
 import { cn, mmNum } from "../lib/utils";
+import {
+  DEFAULT_RATES,
+  formatGBP,
+  loadRates,
+  priceModel,
+  storeRates,
+  type RateCard,
+} from "../lib/pricing";
 import { coerceDesign, type DesignStore } from "../lib/stores";
 import { useBox } from "./useBox";
 import {
@@ -25,6 +39,7 @@ import {
   PanelTop,
   Columns3,
   Ruler,
+  Calculator,
   Save,
   FolderOpen,
   Trash2,
@@ -39,7 +54,7 @@ import {
 } from "lucide-react";
 
 type ViewKey = "axon" | "plan" | "front" | "right" | "back" | "left" | "section" | "door";
-type SideKey = "cut" | "checks" | "sourcing" | "build";
+type SideKey = "cut" | "checks" | "sourcing" | "build" | "pricing";
 
 const VIEWS: { key: ViewKey; label: string; icon: typeof Box }[] = [
   { key: "axon", label: "3D", icon: Box },
@@ -57,6 +72,7 @@ const SIDES: { key: SideKey; label: string; icon: typeof Boxes }[] = [
   { key: "checks", label: "Checks", icon: Grid3x3 },
   { key: "sourcing", label: "Sourcing", icon: MapPin },
   { key: "build", label: "Build plan", icon: Home },
+  { key: "pricing", label: "Pricing", icon: Calculator },
 ];
 
 export function DesignerApp({ store }: { store: DesignStore }) {
@@ -76,9 +92,28 @@ export function DesignerApp({ store }: { store: DesignStore }) {
   const [savedId, setSavedId] = useState<string | null>(null);
   const [status, setStatus] = useState<string | null>(null);
   const [showSaved, setShowSaved] = useState(false);
+  const [rates, setRates] = useState<RateCard>(() => loadRates());
   const { ref, w, h } = useBox<HTMLDivElement>();
 
   const model = useMemo(() => buildModel(design), [design]);
+  const pricing = useMemo(() => priceModel(model, rates), [model, rates]);
+
+  const changeRate = useCallback((key: keyof RateCard, value: number) => {
+    setRates((current) => {
+      const next: RateCard = {
+        ...current,
+        [key]: Number.isFinite(value) && value >= 0 ? value : 0,
+      };
+      storeRates(next);
+      return next;
+    });
+  }, []);
+
+  const resetRates = useCallback(() => {
+    const next = { ...DEFAULT_RATES };
+    storeRates(next);
+    setRates(next);
+  }, []);
 
   const patch = useCallback((p: Partial<Design>) => {
     setDesign((d) => ({ ...d, ...p }));
@@ -386,7 +421,7 @@ export function DesignerApp({ store }: { store: DesignStore }) {
             </div>
           </div>
 
-          <div className="grid shrink-0 grid-cols-2 gap-px border-t border-slate-bark-800 bg-slate-bark-800 sm:grid-cols-3 lg:grid-cols-6">
+          <div className="grid shrink-0 grid-cols-2 gap-px border-t border-slate-bark-800 bg-slate-bark-800 sm:grid-cols-3 lg:grid-cols-7">
             {[
               [
                 "Footprint",
@@ -397,6 +432,7 @@ export function DesignerApp({ store }: { store: DesignStore }) {
               ["Steel", `${model.stats.steelKg.toLocaleString()} kg`],
               ["Posts", `${model.posts.length} perimeter`],
               ["Roof fall", `${Math.abs(model.roofPitchDeg).toFixed(1)}°`],
+              ["Estimate", formatGBP(pricing.total)],
             ].map(([k, v]) => (
               <div key={k} className="bg-slate-bark-900 px-3 py-2">
                 <p className="font-mono text-[9px] uppercase tracking-[0.14em] text-slate-bark-500">
@@ -431,6 +467,15 @@ export function DesignerApp({ store }: { store: DesignStore }) {
             {side === "checks" && <ChecksPanel model={model} />}
             {side === "sourcing" && <SourcingPanel />}
             {side === "build" && <BuildPlanPanel model={model} />}
+            {side === "pricing" && (
+              <PricingPanel
+                model={model}
+                pricing={pricing}
+                rates={rates}
+                onRateChange={changeRate}
+                onResetRates={resetRates}
+              />
+            )}
           </div>
         </aside>
       </div>
