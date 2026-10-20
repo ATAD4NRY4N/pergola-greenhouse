@@ -5,7 +5,7 @@ import { Axonometric } from "../components/views/Axonometric";
 import { PlanView } from "../components/views/PlanView";
 import { ElevationView, SectionView } from "../components/views/ElevationView";
 import { DoorDetailView } from "../components/views/DoorDetailView";
-import { BuildPlanPanel, ChecksPanel } from "../components/panels";
+import { BuildPlanPanel, ChecksPanel, PricingPanel } from "../components/panels";
 import { Designer } from "../components/Designer";
 import { XyzPad, OrbitControls } from "../components/ViewControls";
 import {
@@ -16,6 +16,7 @@ import {
   type Design,
 } from "./model";
 import { fitPointsStable } from "./draw";
+import { DEFAULT_RATES, PHASES, formatGBP, priceModel } from "./pricing";
 
 const variants: [string, Partial<Design>][] = [
   ["default brief", {}],
@@ -272,6 +273,42 @@ describe("3D movement controls", () => {
     expect(html).toContain("8,559 mm");
     expect(html).toContain("Solo-friendly assembly sequence");
     expect(html).toContain("not construction or structural instructions");
+  });
+});
+
+describe("pricing — components and phases of the build", () => {
+  test("the pricing panel prices every component and every build phase", () => {
+    const model = buildModel(DEFAULT_DESIGN);
+    const pricing = priceModel(model, DEFAULT_RATES);
+    const html = renderToStaticMarkup(
+      <PricingPanel
+        model={model}
+        pricing={pricing}
+        rates={DEFAULT_RATES}
+        onRateChange={() => {}}
+        onResetRates={() => {}}
+      />,
+    );
+    expect(html).toContain("Project total");
+    expect(html).toContain("By phase of the build");
+    for (const phase of PHASES) {
+      // renderToStaticMarkup escapes "&" as "&amp;" in text nodes.
+      expect(html).toContain(phase.title.replace(/&/g, "&amp;"));
+      expect(html).toContain(phase.labourRule);
+    }
+    expect(html).toContain("By component");
+    expect(html).toContain("Unit rates");
+    expect(html).toContain("Indicative planning estimate");
+    // The headline totals are shown in pounds.
+    expect(html).toContain(formatGBP(pricing.total));
+    expect(html).toContain(formatGBP(pricing.materials));
+    expect(html).toContain(formatGBP(pricing.labour));
+  });
+
+  test("the designer surfaces pricing in the tabs and the stats strip", () => {
+    const html = renderToStaticMarkup(<Designer />);
+    expect(html).toContain("Pricing");
+    expect(html).toContain("Estimate");
   });
 });
 

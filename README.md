@@ -32,6 +32,9 @@ this browser's local storage.
   wheels, casing, hangers and fixings. One-click copy for the merchant.
 - **Checks** — purlin span against an indicative capacity, door leaf against the low eave,
   every corner against its fixing, roof fall and post spacing.
+- **Pricing** — every cut-list line priced against an editable unit-rate card (UK merchant
+  rates in £), plus the estimate staged by phase of the build — groundwork, steel frame,
+  doors & hardware, glazing — with a transparent day-count labour allowance and contingency.
 - **Sourcing** — a shortlist of Runcorn, Widnes and nearby Deeside / Flintshire counters with
   what to ask each for, and a tick-off list.
 - **Build plan** — measured corner and post set-out coordinates, side lengths and diagonals,
@@ -55,4 +58,6 @@ bun test           # engine + render smoke tests
 
 The span and capacity checks are indicative planning guidance, calibrated against common
 cold-formed Z and C purlin tables. Confirm every section against the manufacturer's load
-tables and get a structural sign-off before you build.
+tables and get a structural sign-off before you build. The pricing is an indicative planning
+estimate from editable unit rates — not a quote; price every line against real quotes before
+ordering.

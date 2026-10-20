@@ -1,9 +1,16 @@
 import { useState } from "react";
 import type { Model } from "../lib/model";
-import { Card, CardBody, CardHeader, CardTitle, Badge, Button } from "./ui";
+import { Card, CardBody, CardHeader, CardTitle, Badge, Button, Input } from "./ui";
 import { SUPPLIERS, SUPPLIER_CATEGORIES } from "../lib/suppliers";
 import { cn } from "../lib/utils";
 import {
+  formatGBP,
+  RATE_FIELDS,
+  type PricingReport,
+  type RateCard,
+} from "../lib/pricing";
+import {
+  Calculator,
   ClipboardList,
   Copy,
   Check,
@@ -14,6 +21,7 @@ import {
   Truck,
   Ruler,
   HardHat,
+  RotateCcw,
 } from "lucide-react";
 
 /* ------------------------------------------------------------------ */
@@ -420,6 +428,280 @@ export function SourcingPanel() {
             travel, and ask whether they cut to length on site. Ask the steel
             supplier for the load table on your Z and C sections and take it to
             whoever signs the build off.
+          </p>
+        </div>
+      </CardBody>
+    </Card>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/* Pricing — components and phases of the build                        */
+/* ------------------------------------------------------------------ */
+
+export function PricingPanel({
+  model,
+  pricing,
+  rates,
+  onRateChange,
+  onResetRates,
+}: {
+  model: Model;
+  pricing: PricingReport;
+  rates: RateCard;
+  onRateChange: (key: keyof RateCard, value: number) => void;
+  onResetRates: () => void;
+}) {
+  const [copied, setCopied] = useState(false);
+  const groups = [...new Set(pricing.components.map((c) => c.group))];
+  const groupTotal = (group: string) =>
+    pricing.groups.find((g) => g.group === group)?.total ?? 0;
+
+  const asText = () =>
+    [
+      `POLYFRAME PRICING — ${model.design.name}`,
+      `Indicative planning estimate in GBP — not a quote.`,
+      "",
+      "-- By phase of the build --",
+      ...pricing.phases.map(
+        (p) =>
+          `${p.title} | materials ${formatGBP(p.materials)} + labour ${formatGBP(p.labour)} ` +
+          `(${p.labourDays} days @ ${formatGBP(rates.labourDayRate)}/day) = ${formatGBP(p.total)}`,
+      ),
+      "",
+      "-- By component --",
+      ...groups.flatMap((g) => [
+        `${g} — ${formatGBP(groupTotal(g))}`,
+        ...pricing.components
+          .filter((c) => c.group === g)
+          .map(
+            (c) =>
+              `${c.item} | ${c.spec} | ${c.qty} ${c.unit} | ${c.basis} | ${formatGBP(c.cost)}`,
+          ),
+        "",
+      ]),
+      `Materials ${formatGBP(pricing.materials)} | Labour ${formatGBP(pricing.labour)} ` +
+        `(${pricing.labourDays} days) | Contingency ${formatGBP(pricing.contingency)} ` +
+        `(${pricing.contingencyPct}%) | TOTAL ${formatGBP(pricing.total)}`,
+      `Per m2 of roof: ${formatGBP(pricing.perRoofM2)}`,
+    ].join("\n");
+
+  const copy = async () => {
+    try {
+      await navigator.clipboard.writeText(asText());
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1800);
+    } catch {
+      /* clipboard unavailable — the tables are still on screen */
+    }
+  };
+
+  return (
+    <Card className="flex h-full flex-col">
+      <CardHeader>
+        <Calculator className="size-3.5 text-canopy-400" />
+        <CardTitle className="flex-1">Pricing &amp; phases of the build</CardTitle>
+        <Button variant="ghost" size="sm" onClick={copy}>
+          {copied ? <Check className="size-3.5" /> : <Copy className="size-3.5" />}
+          {copied ? "Copied" : "Copy"}
+        </Button>
+      </CardHeader>
+      <CardBody className="panel-scroll flex-1 space-y-4 overflow-y-auto">
+        <div className="grid grid-cols-2 gap-2">
+          <Card className="p-3">
+            <p className="font-mono text-[10px] uppercase tracking-[0.14em] text-slate-bark-500">
+              Materials
+            </p>
+            <p className="mt-1 font-mono text-lg text-canopy-200 tnum">
+              {formatGBP(pricing.materials)}
+            </p>
+            <p className="mt-0.5 text-[11px] leading-snug text-slate-bark-500">
+              every cut-list line, priced below
+            </p>
+          </Card>
+          <Card className="p-3">
+            <p className="font-mono text-[10px] uppercase tracking-[0.14em] text-slate-bark-500">
+              Labour
+            </p>
+            <p className="mt-1 font-mono text-lg text-canopy-200 tnum">
+              {formatGBP(pricing.labour)}
+            </p>
+            <p className="mt-0.5 text-[11px] leading-snug text-slate-bark-500">
+              {pricing.labourDays} days @ {formatGBP(rates.labourDayRate)}/day
+            </p>
+          </Card>
+          <Card className="p-3">
+            <p className="font-mono text-[10px] uppercase tracking-[0.14em] text-slate-bark-500">
+              Contingency
+            </p>
+            <p className="mt-1 font-mono text-lg text-canopy-200 tnum">
+              {formatGBP(pricing.contingency)}
+            </p>
+            <p className="mt-0.5 text-[11px] leading-snug text-slate-bark-500">
+              {pricing.contingencyPct}% of materials + labour
+            </p>
+          </Card>
+          <Card className="p-3">
+            <p className="font-mono text-[10px] uppercase tracking-[0.14em] text-slate-bark-500">
+              Per m² of roof
+            </p>
+            <p className="mt-1 font-mono text-lg text-canopy-200 tnum">
+              {formatGBP(pricing.perRoofM2)}
+            </p>
+            <p className="mt-0.5 text-[11px] leading-snug text-slate-bark-500">
+              {model.stats.roofArea.toFixed(1)} m² roof
+            </p>
+          </Card>
+          <Card className="col-span-2 border-canopy-700 bg-canopy-900/30 p-3">
+            <p className="font-mono text-[10px] uppercase tracking-[0.14em] text-canopy-300">
+              Project total (estimate)
+            </p>
+            <p className="mt-1 font-mono text-2xl text-canopy-100 tnum">
+              {formatGBP(pricing.total)}
+            </p>
+            <p className="mt-0.5 text-[11px] leading-snug text-slate-bark-400">
+              materials + labour + contingency · excludes VAT, delivery,
+              cutting charges, tool hire and foundations concrete
+            </p>
+          </Card>
+        </div>
+
+        <section>
+          <h3 className="font-mono text-[10px] uppercase tracking-[0.16em] text-canopy-400">
+            By phase of the build
+          </h3>
+          <div className="mt-2 space-y-2">
+            {pricing.phases.map((p) => (
+              <div
+                key={p.id}
+                className="rounded-md border border-slate-bark-800 bg-slate-bark-950/60 p-3"
+              >
+                <div className="flex items-baseline justify-between gap-3">
+                  <p className="text-xs font-medium text-slate-bark-100">
+                    {p.title}
+                  </p>
+                  <p className="font-mono text-xs text-canopy-200 tnum">
+                    {formatGBP(p.total)}
+                  </p>
+                </div>
+                <p className="mt-0.5 text-[10px] leading-relaxed text-slate-bark-500">
+                  {p.step}
+                </p>
+                <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-slate-bark-800">
+                  <div
+                    className="h-full rounded-full bg-canopy-500"
+                    style={{ width: `${Math.max(2, p.sharePct)}%` }}
+                  />
+                </div>
+                <div className="mt-1.5 flex flex-wrap gap-x-3 gap-y-0.5 font-mono text-[10px] text-slate-bark-400">
+                  <span>materials {formatGBP(p.materials)}</span>
+                  <span>
+                    labour {formatGBP(p.labour)} ({p.labourDays} days)
+                  </span>
+                  <span>{p.sharePct.toFixed(0)}% of staged spend</span>
+                </div>
+                <p className="mt-1 text-[10px] text-slate-bark-500">
+                  Labour allowance: {p.labourRule}
+                </p>
+              </div>
+            ))}
+          </div>
+        </section>
+
+        <section>
+          <h3 className="font-mono text-[10px] uppercase tracking-[0.16em] text-canopy-400">
+            By component
+          </h3>
+          <div className="mt-2 overflow-hidden rounded-md border border-slate-bark-800">
+            {groups.map((g) => (
+              <div key={g}>
+                <p className="flex justify-between bg-slate-bark-900/95 px-3 py-1.5 font-mono text-[10px] uppercase tracking-[0.16em] text-canopy-400">
+                  <span>{g}</span>
+                  <span className="tnum">{formatGBP(groupTotal(g))}</span>
+                </p>
+                <table className="w-full text-left">
+                  <tbody>
+                    {pricing.components
+                      .filter((c) => c.group === g)
+                      .map((c) => (
+                        <tr
+                          key={c.id}
+                          className="border-b border-slate-bark-800/60 align-top last:border-0"
+                        >
+                          <td className="px-3 py-2">
+                            <p className="text-xs text-slate-bark-200">
+                              {c.item}
+                            </p>
+                            <p className="font-mono text-[10px] text-slate-bark-500">
+                              {c.spec}
+                            </p>
+                            <p className="mt-0.5 font-mono text-[10px] text-slate-bark-400">
+                              {c.basis}
+                            </p>
+                          </td>
+                          <td className="whitespace-nowrap px-3 py-2 text-right align-top">
+                            <p className="font-mono text-xs text-canopy-300 tnum">
+                              {formatGBP(c.cost)}
+                            </p>
+                            <p className="font-mono text-[10px] text-slate-bark-400">
+                              {c.qty} {c.unit}
+                            </p>
+                          </td>
+                        </tr>
+                      ))}
+                  </tbody>
+                </table>
+              </div>
+            ))}
+          </div>
+        </section>
+
+        <section className="rounded-md border border-slate-bark-800 bg-slate-bark-950/60 p-3">
+          <div className="flex items-center justify-between gap-2">
+            <h3 className="font-mono text-[10px] uppercase tracking-[0.16em] text-canopy-300">
+              Unit rates
+            </h3>
+            <Button variant="ghost" size="sm" onClick={onResetRates}>
+              <RotateCcw className="size-3.5" />
+              Reset
+            </Button>
+          </div>
+          <p className="mt-1 text-[10px] leading-relaxed text-slate-bark-500">
+            Edit these to match your merchant quotes and day rate — every
+            figure above recalculates, and the rates are kept in this browser.
+          </p>
+          <div className="mt-2 grid grid-cols-2 gap-2">
+            {RATE_FIELDS.map((field) => (
+              <label key={field.key} className="block">
+                <span className="block font-mono text-[9px] uppercase tracking-[0.12em] text-slate-bark-500">
+                  {field.label} · {field.unit}
+                </span>
+                <Input
+                  type="number"
+                  min={0}
+                  step={field.step}
+                  value={rates[field.key]}
+                  onChange={(e) =>
+                    onRateChange(field.key, Number(e.target.value))
+                  }
+                  className="mt-1 h-8 font-mono text-xs tnum"
+                />
+              </label>
+            ))}
+          </div>
+        </section>
+
+        <div className="flex gap-2 rounded-md border border-brass-400/30 bg-brass-400/5 p-3">
+          <TriangleAlert className="mt-0.5 size-4 shrink-0 text-brass-300" />
+          <p className="text-[10px] leading-relaxed text-slate-bark-300">
+            <b className="text-brass-200">
+              Indicative planning estimate — not a quote.
+            </b>{" "}
+            Rates are typical UK merchant figures and the labour allowance is a
+            transparent day-count rule, not a contractor's price. VAT, delivery,
+            cutting charges, tool hire, skip hire, foundations concrete, anchors
+            and professional fees are not included. Price every line against
+            real quotes before ordering.
           </p>
         </div>
       </CardBody>
